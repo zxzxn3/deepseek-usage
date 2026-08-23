@@ -47,11 +47,12 @@ $env:DEEPSEEK_API_KEY = "sk-..."    # 会话级，关掉终端即失效
 - tiktoken 编码名（OpenAI 系：`o200k_base` / `cl100k_base` 等）
 
 ```powershell
-# 1) 更新持久化消耗表（扫描全部本地会话 → SQLite + 打印 token/费用汇总 + 图表）
+# 1) 更新持久化消耗表（扫描全部工作区 → SQLite + 打印 token/费用汇总 + 图表）
 & d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --chart
-#    可选：指定计费模型 / 高峰价 / 换 tokenizer
-& d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --chart --model deepseek-v4-flash --peak
+#    可选：计费模型 / 价格时段(默认 auto 按时间) / 换 tokenizer / 监听模式
+& d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --chart --model deepseek-v4-flash --pricing auto
 & d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --tokenizer o200k_base
+& d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --watch 10   # 每 10 秒更新一行摘要
 
 # 2) 精确统计单个转录：总数 + 最近轮次 + 每轮 user 消息时的累计上下文
 & d:\Flow-1.5\.venv\Scripts\python.exe measure_transcript.py <transcript.jsonl> --turns 8 --ctx 5
@@ -60,7 +61,9 @@ $env:DEEPSEEK_API_KEY = "sk-..."    # 会话级，关掉终端即失效
 & d:\Flow-1.5\.venv\Scripts\python.exe measure_transcript.py --text "你的文本" --tokenizer o200k_base
 ```
 
-**费用估算**：按转录角色近似（user+tool≈输入、assistant≈输出）× 官方定价（`deepseek-v4-flash` / `-pro` / `-vision-exp`，空闲价；`--peak` 为高峰价=×2）。缓存命中与否未知，故给上下限：`费用↑`=无缓存（上限）、`费用↓`=全缓存命中（下限）。价格基于 2026-08 官方页面，需自行留意变更。
+**多工作区**：自动扫描 `%APPDATA%` 下全部工作区的转录目录，排序 = 工作区修改时间新→旧，再按各会话时间新→旧；表格带工作区列。
+
+**费用估算**：按转录角色近似（user+tool≈输入、assistant≈输出）× 官方定价。`--pricing` 默认 `auto`——按每条事件时间戳自动判断北京高峰/空闲加权（高峰价=空闲价×2）；也可强制 `offpeak` / `peak`。缓存命中与否未知，故给上下限：`费用↑`=无缓存（上限）、`费用↓`=全缓存命中（下限）。价格基于 2026-08 官方页面，需自行留意变更。
 
 输出：`usage_sessions.db`（表 `session_usage`，每次运行重算并 upsert）、`charts\sessions_YYYYMMDD_HHMMSS.png`（**带时间戳，不覆盖旧图**）。
 
