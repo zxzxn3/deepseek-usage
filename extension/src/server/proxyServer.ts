@@ -5,6 +5,7 @@ import * as http from "http";
 import * as https from "https";
 import { appendRecord, UsageRecord } from "../jsonl";
 import { SseUsageExtractor } from "./sse";
+import { fmtRow } from "./termfmt";
 
 const DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
 const STREAM_IDLE_TIMEOUT_MS = 600 * 1000; // 流式等下一个字节的最大空闲时间
@@ -65,9 +66,17 @@ function recordAndLog(
   };
   appendRecord(jsonlPath, rec);
   log(
-    `[${new Date().toISOString()}] ${model} p ${f.pt} c ${f.ct} ` +
-      `t ${f.tt} cH ${f.ch} | ${stream ? "s" : "o"} ${status}` +
-      (error ? `  ✗ ${error}` : ""),
+    fmtRow({
+      model,
+      pt: f.pt,
+      ct: f.ct,
+      tt: f.tt,
+      ch: f.ch,
+      cm: f.cm,
+      stream,
+      status,
+      error,
+    }),
   );
 }
 

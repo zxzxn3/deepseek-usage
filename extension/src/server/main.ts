@@ -1,6 +1,7 @@
 // 代理子进程入口：node out/server.js --port 8080 --jsonl <path>
 // 由扩展 spawn；也可独立运行便于调试。
 import { startProxyServer } from "./proxyServer";
+import { HDR, SEP } from "./termfmt";
 
 function parseArgs(argv: string[]): Record<string, string | undefined> {
   const args: Record<string, string | undefined> = {};
@@ -22,6 +23,8 @@ async function main() {
   }
   const server = await startProxyServer({ port, jsonlPath: jsonl });
   console.log(`proxy 已启动: http://127.0.0.1:${port}  jsonl=${jsonl}`);
+  console.log(HDR);
+  console.log(SEP);
 
   const stop = () => {
     server.close(() => process.exit(0));
