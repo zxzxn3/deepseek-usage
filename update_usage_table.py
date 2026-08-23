@@ -2,7 +2,8 @@
 """update_usage_table.py — 扫描本地 Copilot 转录，用真实 DeepSeek tokenizer
 统计每个会话的 token 消耗，更新持久化表（SQLite）并打印汇总。
 
-每次运行都会重算所有本地会话（活会话会持续增长，所以不跳过），
+每次运行默认复用数据库：只按文件大小/修改时间增量重算变化的会话（活会话每次都会更新），
+其余用缓存；仅当表结构版本（SCHEMA_VERSION）变更时才删库重建一次。
 结果按 session_id upsert 进 usage_sessions.db；还可选输出图表。
 
 用法:
@@ -38,6 +39,9 @@ from measure_transcript import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "usage_sessions.db")
 CHART_DIR = os.path.join(BASE_DIR, "charts")
+
+# 表结构版本号：改了表结构就 +1 → 触发一次删库重建；格式稳定后保持不变 → 复用库只增量更新
+SCHEMA_VERSION = 1
 
 
 def discover_transcripts_dirs():
@@ -184,48 +188,66 @@ def run_scan(args, compact=False):
     mode = "精确" if tok is not None else "估算"
 
     con = sqlite3.connect(args.db)
-    # 旧库直接重建：每次运行都从转录全量重算，旧行无保留价值，无需迁移
-    con.execute("DROP TABLE IF EXISTS session_usage")
-    con.execute("""
-        CREATE TABLE session_usage(
-            session_id   TEXT PRIMARY KEY,
-            file         TEXT,
-            workspace    TEXT,
-            first_ts     TEXT,
-            last_ts      TEXT,
-            n_events     INTEGER,
-            user_tok     REAL,
-            assistant_tok REAL,
-            tool_tok     REAL,
-            total_tok    REAL,
-            model        TEXT,
-            cost_nocache REAL,
-            cost_allcache REAL,
-            measured_at  TEXT
-        )
-        """)
+    # ---- schema 版本门控：只有格式变更才重建；格式稳定后复用库、只增量更新 ----
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    rebuild = version != SCHEMA_VERSION
+    if rebuild:
+        con.execute("DROP TABLE IF EXISTS session_usage")
+        con.execute("""
+            CREATE TABLE session_usage(
+                session_id   TEXT PRIMARY KEY,
+                file         TEXT,
+                workspace    TEXT,
+                first_ts     TEXT,
+                last_ts      TEXT,
+                n_events     INTEGER,
+                user_tok     REAL,
+                assistant_tok REAL,
+                tool_tok     REAL,
+                total_tok    REAL,
+                model        TEXT,
+                cost_nocache REAL,
+                cost_allcache REAL,
+                file_size    INTEGER,
+                file_mtime   REAL,
+                measured_at  TEXT
+            )
+            """)
+        con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        con.commit()
+        print(f"[schema] 库版本 {version} → {SCHEMA_VERSION}，已重建（格式变更）")
 
-    rows = []  # (工作区名, session_id, m)
-    # 外层循环：每个工作区（已按 mtime 新→旧排好）
+    # ---- 增量扫描：只重算"文件变了"的会话（用 大小+修改时间 判断缓存命中）----
+    seen = set()
+    n_changed = 0
     for dir_path, ws_name, _mt in dirs:
         if not os.path.isdir(dir_path):
             continue
-        ws_rows = []
-        # 内层循环：该工作区下每个会话转录 .jsonl
         for f in sorted(glob.glob(os.path.join(dir_path, "*.jsonl"))):
             sid = os.path.splitext(os.path.basename(f))[0]  # 文件名 = session_id
-            m = measure_file(f, tok)  # 统计该会话的 token / 时间 / 高峰占比
-            nocache, allcache = compute_cost(
-                m, args.model, pricing=args.pricing
-            )  # 估算费用
-            m["cost_nocache"] = nocache
-            m["cost_allcache"] = allcache
-            # INSERT OR REPLACE：session_id 为主键，同一会话重复扫描就覆盖更新
+            seen.add((ws_name, sid))
+            try:
+                st = os.stat(f)
+                fsize, fmtime = st.st_size, st.st_mtime
+            except OSError:
+                fsize, fmtime = 0, 0.0
+            if not rebuild:
+                # 缓存命中：文件没变 → 直接沿用库里的旧行
+                hit = con.execute(
+                    "SELECT 1 FROM session_usage WHERE session_id=? AND file_size=? AND file_mtime=?",
+                    (sid, fsize, fmtime),
+                ).fetchone()
+                if hit:
+                    continue
+            # 需要（重）算：measure_file 统计 + compute_cost 估费
+            m = measure_file(f, tok)
+            nocache, allcache = compute_cost(m, args.model, pricing=args.pricing)
+            m["cost_nocache"], m["cost_allcache"] = nocache, allcache
             con.execute(
                 "INSERT OR REPLACE INTO session_usage(session_id,file,workspace,"
                 "first_ts,last_ts,n_events,user_tok,assistant_tok,tool_tok,total_tok,"
-                "model,cost_nocache,cost_allcache,measured_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "model,cost_nocache,cost_allcache,file_size,file_mtime,measured_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     sid,
                     os.path.basename(f),
@@ -240,14 +262,47 @@ def run_scan(args, compact=False):
                     args.model,
                     nocache,
                     allcache,
+                    fsize,
+                    fmtime,
                     now_iso(),
                 ),
             )
-            ws_rows.append((ws_name, sid, m))
-        # 工作区内按会话时间 新→旧
-        ws_rows.sort(key=lambda r: r[2]["last_ts"] or "", reverse=True)
-        rows.extend(ws_rows)
+            n_changed += 1
+
+    # 清理：转录文件已消失 / 目录不在扫描范围的行（避免越积越多）
+    for ws, sid in con.execute("SELECT workspace, session_id FROM session_usage"):
+        if (ws, sid) not in seen:
+            con.execute(
+                "DELETE FROM session_usage WHERE session_id=? AND workspace=?",
+                (sid, ws),
+            )
     con.commit()
+
+    # 展示用：从库里读全量行（含未变化的缓存行）
+    ws_rank = {ws_name: i for i, (_d, ws_name, _m) in enumerate(dirs)}
+    rows = [
+        (
+            ws,
+            sid,
+            {
+                "last_ts": last_ts,
+                "n_events": n_events,
+                "user_tok": user_tok,
+                "assistant_tok": assistant_tok,
+                "tool_tok": tool_tok,
+                "total_tok": total_tok,
+                "cost_nocache": cost_nocache,
+                "cost_allcache": cost_allcache,
+            },
+        )
+        for ws, sid, last_ts, n_events, user_tok, assistant_tok, tool_tok, total_tok, cost_nocache, cost_allcache in con.execute(
+            "SELECT workspace,session_id,last_ts,n_events,user_tok,assistant_tok,"
+            "tool_tok,total_tok,cost_nocache,cost_allcache FROM session_usage"
+        )
+    ]
+    # 排序：先会话时间 新→旧，再按工作区 rank（新→旧）稳定排序保持组内顺序
+    rows.sort(key=lambda r: r[2]["last_ts"] or "", reverse=True)
+    rows.sort(key=lambda r: ws_rank.get(r[0], len(dirs)))
     con.close()
 
     if args.top > 0:
@@ -277,10 +332,11 @@ def run_scan(args, compact=False):
             f"[{datetime.now().strftime('%H:%M:%S')}] 工作区 {len(dirs)} | 会话 {len(rows)}"
             f" | 总token {grand['total_tok']:,.0f}"
             f" | 费用 ¥{grand['cost_nocache']:.2f}↑/¥{grand['cost_allcache']:.2f}↓"
+            f" | 重算{n_changed}"
         )
     else:
         print(f"转录目录 : {', '.join(d[0] for d in dirs)}")
-        print(f"会话数量 : {len(rows)}  | 统计方式: {mode}")
+        print(f"会话数量 : {len(rows)}  | 统计方式: {mode}  | 本次重算: {n_changed}")
         print(f"计费模型 : {args.model}  | 价格: {price_note}")
         print(f"费用列: ↑=无缓存(上限)  ↓=全缓存命中(下限)，单位 元")
         print(f"数据库   : {args.db}\n")
