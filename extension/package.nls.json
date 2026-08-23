@@ -7,5 +7,6 @@
   "config.port": "Local proxy listen port.",
   "config.autoStart": "Automatically start the proxy when VS Code launches.",
   "config.manageBaseUrl": "Point deepseek-copilot.baseUrl at the local proxy while running, and restore it when stopped.",
-  "config.pollIntervalSeconds": "Status bar refresh interval (seconds)."
+  "config.pollIntervalSeconds": "Status bar refresh interval (seconds).",
+  "config.language": "UI language. 'auto' follows the VS Code display language; 'en'/'zh-cn' force a language (default 'en')."
 }
