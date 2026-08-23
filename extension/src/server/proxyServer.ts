@@ -2,6 +2,7 @@
 // 支持：非流式转发 + 真流式透传（chunked / SSE 跨块缓冲 / 客户端断连续读 / 空闲超时）。
 // R5 hook：log 回调即"可选终端"预留点。
 import * as http from "http";
+import * as https from "https";
 import { appendRecord, UsageRecord } from "../jsonl";
 import { SseUsageExtractor } from "./sse";
 
@@ -162,10 +163,24 @@ function handleStream(
       stream_options: { include_usage: true, ...(payload.stream_options ?? {}) },
     });
 
-    const upstream = http.request(apiUrl, {
-      method: "POST",
-      headers: { Authorization: auth, "Content-Type": "application/json" },
-    });
+    // 按协议选 http/https 客户端：apiUrl 默认是 https 的 DeepSeek 端点
+    const client = apiUrl.startsWith("https:") ? https : http;
+    let upstream: http.ClientRequest;
+    try {
+      upstream = client.request(apiUrl, {
+        method: "POST",
+        headers: { Authorization: auth, "Content-Type": "application/json" },
+      });
+    } catch (e: any) {
+      // 构造请求失败（协议/URL 非法等）：记日志 + 回 500，别让整个代理进程崩掉
+      recordAndLog(jsonlPath, log, model, null, true, 0, String(e));
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: String(e) }));
+      }
+      resolve();
+      return;
+    }
     upstream.setTimeout(STREAM_IDLE_TIMEOUT_MS); // 空闲超时（长停顿不误杀）
 
     const finish = () => resolve();
