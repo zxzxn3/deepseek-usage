@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "DeepSeek usage proxy（自启）",
+      "type": "shell",
+      "command": "& d:\\deepseek_usage\\.venv\\Scripts\\python.exe d:\\deepseek_usage\\proxy.py proxy --port 8080",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "focus": false,
+        "clear": false
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "DeepSeek usage proxy（手动）",
+      "type": "shell",
+      "command": "& d:\\deepseek_usage\\.venv\\Scripts\\python.exe d:\\deepseek_usage\\proxy.py proxy --port 8080",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "focus": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "DeepSeek usage HUD（手动）",
+      "type": "shell",
+      "command": "& d:\\deepseek_usage\\.venv\\Scripts\\python.exe d:\\deepseek_usage\\hud.py",
+      "presentation": {
+        "panel": "new",
+        "reveal": "always",
+        "focus": false,
+        "clear": false
+      }
+    }
+  ]
+}
