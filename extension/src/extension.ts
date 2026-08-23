@@ -8,12 +8,11 @@ import * as fs from "fs";
 import { TailReader, UsageRecord } from "./jsonl";
 import {
   TodayStats,
-  ModelStats,
   newTodayStats,
-  newModelStats,
   addRecord,
-  addModelRecord,
   beijingDayStartUtcMs,
+  aggregateRange,
+  RangeKey,
 } from "./stats";
 import {
   isPeakBeijing,
@@ -33,9 +32,6 @@ let timer: NodeJS.Timeout | null = null;
 let proxyProc: cp.ChildProcess | null = null;
 let originalBaseUrl: string | undefined;
 let proxyLog: vscode.OutputChannel | null = null;
-let modelStats = new Map<string, ModelStats>(); // 按模型今日统计（明细面板用）
-let recentRecs: UsageRecord[] = []; // 最近请求环形缓冲（明细面板用）
-const RECENT_CAP = 60;
 
 export function activate(context: vscode.ExtensionContext) {
   // 数据文件：扩展全局存储（用户级、跨工作区）
@@ -118,8 +114,6 @@ function resetAggregation() {
   if (!tailReader) return;
   tailReader.reset();
   stats = newTodayStats();
-  modelStats = new Map();
-  recentRecs = [];
 }
 
 function pollIntervalMs(): number {
@@ -141,18 +135,7 @@ function poll() {
     resetAggregation();
     lastDayStart = dayStart;
   }
-  for (const rec of tailReader.readNew()) {
-    if (addRecord(stats, rec)) {
-      let m = modelStats.get(rec.model);
-      if (!m) {
-        m = newModelStats();
-        modelStats.set(rec.model, m);
-      }
-      addModelRecord(m, rec);
-    }
-    recentRecs.push(rec);
-    if (recentRecs.length > RECENT_CAP) recentRecs.shift();
-  }
+  for (const rec of tailReader.readNew()) addRecord(stats, rec);
   renderStatusBar();
 }
 
@@ -196,12 +179,26 @@ function fmtTok(n: number): string {
 }
 
 function showStats() {
-  openDetailPanel(() => ({
-    stats,
-    models: [...modelStats.entries()].map(([name, m]) => ({ name, m })),
-    recent: recentRecs,
-    peakNow: isPeakBeijing(new Date()),
-  }));
+  openDetailPanel((range) => {
+    const all = readAllRecords();
+    return { ...aggregateRange(all, range), peakNow: isPeakBeijing(new Date()) };
+  });
+}
+
+/** 直接读整个 JSONL（明细面板按需全扫，独立于增量轮询）。 */
+function readAllRecords(): UsageRecord[] {
+  if (!fs.existsSync(jsonlPath)) return [];
+  const out: UsageRecord[] = [];
+  for (const line of fs.readFileSync(jsonlPath, "utf8").split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      out.push(JSON.parse(s) as UsageRecord);
+    } catch {
+      // 单行损坏则跳过
+    }
+  }
+  return out;
 }
 
 /** 状态栏点击：选择显示格式（附今日明细入口），选择持久化到配置。 */

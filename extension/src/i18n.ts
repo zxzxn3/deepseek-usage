@@ -61,6 +61,16 @@ const dict: Record<string, { en: string; zh: string }> = {
   statusFormatTotalT: { en: "Total tokens", zh: "总词元" },
   statusFormatTotalCost: { en: "Total cost", zh: "总费用" },
   openDetails: { en: "Open today's details", zh: "查看今日明细" },
+  rangeToday: { en: "Today", zh: "今天" },
+  rangeWeek: { en: "Week", zh: "周" },
+  rangeMonth: { en: "Month", zh: "月" },
+  rangeAll: { en: "All", zh: "全部" },
+  byTime: { en: "Usage over time", zh: "按时间" },
+  chartCost: { en: "Cost", zh: "费用" },
+  chartTokens: { en: "Tokens", zh: "词元" },
+  exportCsv: { en: "Export CSV", zh: "导出 CSV" },
+  exportDone: { en: "Exported {n} rows → {path}", zh: "已导出 {n} 行 → {path}" },
+  requests: { en: "Requests", zh: "请求数" },
 };
 
 /** Language follows the VS Code display language (Chinese interface → Chinese, otherwise English). */
