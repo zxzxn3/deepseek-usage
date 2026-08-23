@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""deepseek_usage.py — 通过 DeepSeek API 获取真实 token 用量并记录/绘图。
+"""path2/proxy.py — 路2（精确）：拦截真实请求，把响应里的 usage 存进 usage.db。
 
-背景
-----
 DeepSeek 的 API 是 OpenAI 兼容的：每次响应都带 usage 对象（prompt_tokens /
 completion_tokens / total_tokens，以及缓存相关的 prompt_cache_hit_tokens /
-prompt_cache_miss_tokens）。官方 platform.deepseek.com 仪表板也有历史汇总。
-本工具在本地做三件事：
+prompt_cache_miss_tokens）。本工具做三件事：
 
   check   一次性调用 DeepSeek API，打印并记录一次真实 usage（验证 key 可用）
   proxy   本地 OpenAI 兼容代理：把请求转发给 DeepSeek API，并记录每次 usage
-  report  汇总记录并生成 matplotlib 图表
   list    打印最近 N 条记录
+
+接入方式：把 Copilot 扩展（deepseek-v4-for-copilot）的 baseUrl 指向本代理，
+例如 "deepseek-copilot.baseUrl": "http://127.0.0.1:8080"，则每次真实聊天
+请求都会经过这里，usage 自动落库。
 
 凭据
 ----
@@ -21,10 +21,9 @@ prompt_cache_miss_tokens）。官方 platform.deepseek.com 仪表板也有历史
 用法示例
 --------
     $env:DEEPSEEK_API_KEY = "sk-..."          # 在终端里设置，别在聊天里发
-    python deepseek_usage.py check --model deepseek-v4-flash --prompt "hi"
-    python deepseek_usage.py proxy --port 8080
-    python deepseek_usage.py list --limit 20
-    python deepseek_usage.py report
+    python proxy.py check --model deepseek-v4-flash --prompt "hi"
+    python proxy.py proxy --port 8080
+    python proxy.py list --limit 20
 """
 
 import argparse
@@ -44,7 +43,6 @@ DB_PATH = os.environ.get("DEEPSEEK_USAGE_DB", os.path.join(BASE_DIR, "usage.db")
 JSONL_PATH = os.environ.get(
     "DEEPSEEK_USAGE_JSONL", os.path.join(BASE_DIR, "usage.jsonl")
 )
-CHART_DIR = os.path.join(BASE_DIR, "charts")
 DEFAULT_MODEL = "deepseek-v4-flash"
 
 
@@ -246,7 +244,7 @@ def cmd_check(args):
 
 
 # --------------------------------------------------------------------------- #
-# proxy：本地 OpenAI 兼容代理 + 记录
+# proxy：本地 OpenAI 兼容代理 + 记录（事件触发式 HTTP 服务器）
 # --------------------------------------------------------------------------- #
 
 
@@ -273,6 +271,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        # 事件触发：只有客户端发来 /chat/completions 请求才干活
         path = urlparse(self.path).path
         if path not in ("/v1/chat/completions", "/chat/completions"):
             self._send(404, b'{"error":"not found"}')
@@ -394,7 +393,7 @@ def cmd_proxy(args):
 
 
 # --------------------------------------------------------------------------- #
-# list / report
+# list：查看最近记录（验证管线用）
 # --------------------------------------------------------------------------- #
 
 
@@ -408,7 +407,7 @@ def cmd_list(args):
     ).fetchall()
     con.close()
     if not rows:
-        print("还没有任何记录。先运行 `python deepseek_usage.py check` 或启动 proxy。")
+        print("还没有任何记录。先运行 `python proxy.py check` 或启动 proxy。")
         return
     hdr = f"{'ts':<26}{'model':<20}{'prompt':>7}{'complet':>9}{'total':>8}{'cache':>8}{'msg':>4}{'strm':>5}{'st':>4}"
     print(hdr)
@@ -421,95 +420,9 @@ def cmd_list(args):
         )
 
 
-def cmd_report(args):
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from matplotlib import font_manager
-    except ImportError:
-        plt = None
-        print("未安装 matplotlib，仅输出文本汇总。")
-
-    con = init_db()
-    daily = con.execute("""
-        SELECT date(ts) AS d,
-               SUM(prompt_tokens)     AS p,
-               SUM(completion_tokens) AS c,
-               SUM(total_tokens)      AS t,
-               SUM(cache_hit_tokens)  AS h,
-               COUNT(*)               AS n
-        FROM usage_log
-        WHERE total_tokens IS NOT NULL AND status = 200
-        GROUP BY d ORDER BY d
-        """).fetchall()
-    total = con.execute(
-        "SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(prompt_tokens),0),"
-        "       COALESCE(SUM(completion_tokens),0), COALESCE(SUM(cache_hit_tokens),0)"
-        " FROM usage_log WHERE total_tokens IS NOT NULL AND status=200"
-    ).fetchone()
-    con.close()
-
-    if total and total[0]:
-        print(
-            f"有效请求 {total[0]} 条 | 总 token {total[1]} | prompt {total[2]}"
-            f" | completion {total[3]} | 缓存命中 {total[4]}"
-        )
-    if not daily:
-        print("没有带 usage 的记录（total_tokens 为 NULL 或状态非 200 的不会统计）。")
-        return
-
-    print(
-        f"\n{'日期':<12}{'请求数':>6}{'prompt':>10}{'completion':>12}{'cache_hit':>10}{'合计':>10}"
-    )
-    for d, p, c, t, h, n in daily:
-        print(f"{d:<12}{n:>6}{p:>10}{c:>12}{str(h):>10}{t:>10}")
-
-    if plt is None:
-        return
-    # 中文字体
-    for name in ("Microsoft YaHei", "SimHei", "PingFang SC"):
-        if any(
-            name.lower() in f.name.lower() for f in font_manager.fontManager.ttflist
-        ):
-            plt.rcParams["font.sans-serif"] = [name]
-            break
-    plt.rcParams["axes.unicode_minus"] = False
-
-    days = [r[0] for r in daily]
-    ps = [r[1] for r in daily]
-    cs = [r[2] for r in daily]
-    ts = [r[3] for r in daily]
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    x = range(len(days))
-    ax.bar(x, ps, label="prompt tokens", color="#4C72B0")
-    ax.bar(x, cs, bottom=ps, label="completion tokens", color="#DD8452")
-    ax.plot(x, ts, color="#C44E52", marker="o", label="total")
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(days, rotation=45, ha="right")
-    ax.set_ylabel("tokens")
-    ax.set_title("DeepSeek 每日 token 用量")
-    ax.legend()
-    fig.tight_layout()
-
-    os.makedirs(CHART_DIR, exist_ok=True)
-    out = os.path.join(CHART_DIR, "usage_daily.png")
-    fig.savefig(out, dpi=150)
-    print(f"\n图表已保存: {out}")
-
-
-# --------------------------------------------------------------------------- #
-# main
-# --------------------------------------------------------------------------- #
-
-
 def main():
     ap = argparse.ArgumentParser(
-        description="DeepSeek API token 用量记录与可视化（纯标准库 + matplotlib）",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
+        description="路2（精确）：拦截请求，把响应里的 usage 存进 usage.db"
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -517,9 +430,7 @@ def main():
     p_check.add_argument(
         "--model", default=DEFAULT_MODEL, help=f"模型名（默认 {DEFAULT_MODEL}）"
     )
-    p_check.add_argument(
-        "--prompt", default="hi", help="测试提示词（默认 'hi'，尽量省 token）"
-    )
+    p_check.add_argument("--prompt", default="hi", help="测试提示词（默认 'hi'）")
     p_check.add_argument("--max-tokens", type=int, default=16)
     p_check.add_argument("--timeout", type=int, default=120)
     p_check.set_defaults(func=cmd_check)
@@ -532,9 +443,6 @@ def main():
     p_list = sub.add_parser("list", help="打印最近记录")
     p_list.add_argument("--limit", type=int, default=20)
     p_list.set_defaults(func=cmd_list)
-
-    p_report = sub.add_parser("report", help="汇总并生成图表")
-    p_report.set_defaults(func=cmd_report)
 
     args = ap.parse_args()
     args.func(args)

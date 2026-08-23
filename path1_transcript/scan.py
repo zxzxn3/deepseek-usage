@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
-"""update_usage_table.py — 扫描本地 Copilot 转录，用真实 DeepSeek tokenizer
-统计每个会话的 token 消耗，更新持久化表（SQLite）并打印汇总。
+"""path1/scan.py — 路1（估算）：读 Copilot 转录 → tokenizer 数 token → 估算费用 → 写 usage_sessions.db。
 
-每次运行默认复用数据库：只按文件大小/修改时间增量重算变化的会话（活会话每次都会更新），
-其余用缓存；仅当表结构版本（SCHEMA_VERSION）变更时才删库重建一次。
-结果按 session_id upsert 进 usage_sessions.db；还可选输出图表。
+- 增量：按 文件大小+修改时间 只重算变化的会话；schema 版本变了才删库重建一次。
+- 报告/图表已移出（暂时不做），只保留核心管线 + 一行摘要。
+- 费用用 common/pricing（与路2 共用同一份定价表）。
 
 用法:
-    python update_usage_table.py [--dir <transcripts目录>] [--db <path>] [--chart] [--top N]
-                                  [--model deepseek-v4-flash] [--pricing auto|offpeak|peak]
-                                  [--watch N]
-（费用按真实 tokenizer 统计结果 × 官方定价估算；--pricing 默认 auto，按事件时间自动算高峰/空闲；
- --chart 输出带时间戳的图表；--watch N 监听模式每 N 秒重扫更新，Ctrl+C 退出）
+    python scan.py [--dir <transcripts目录>] [--db <path>] [--model deepseek-v4-flash]
+                   [--pricing auto|offpeak|peak] [--watch N]
 
-默认转录目录: 自动识别全部工作区（%APPDATA%\\Code\\User\\workspaceStorage 下所有 transcripts，
-              不写死用户名）；排序 = 工作区修改时间新→旧，再按各会话时间新→旧
-默认数据库  : token_usage/usage_sessions.db
+默认转录目录: 自动识别全部工作区（%APPDATA%\\Code\\User\\workspaceStorage 下所有 transcripts）
 依赖        : tokenizers / tiktoken（精确模式）；未装则回退字符估算
 """
 
@@ -29,16 +23,19 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from measure_transcript import (
+# 允许直接 `python path1_transcript/scan.py` 运行：把 token_usage 根加入 sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from common.pricing import DEFAULT_MODEL, cost_from_roles  # noqa: E402
+from measure import (
     DEFAULT_TOKENIZER,
     count_tokens,
     load_tokenizer,
     split_event,
-)
+)  # noqa: E402
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "usage_sessions.db")
-CHART_DIR = os.path.join(BASE_DIR, "charts")
 
 # 表结构版本号：改了表结构就 +1 → 触发一次删库重建；格式稳定后保持不变 → 复用库只增量更新
 SCHEMA_VERSION = 1
@@ -93,41 +90,6 @@ def _is_peak(ts):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-# 价格：元 / 百万 tokens（2026-08，https://api-docs.deepseek.com/zh-cn/quick_start/pricing/）
-# 空闲价 = 高峰价一半；此处为空闲价，--pricing peak 时整体 ×2。
-PRICING = {
-    "deepseek-v4-flash": {"cache_hit": 0.05, "cache_miss": 1.5, "output": 4.5},
-    "deepseek-v4-pro": {"cache_hit": 0.15, "cache_miss": 4.5, "output": 13.5},
-    "deepseek-v4-flash-vision-exp": {
-        "cache_hit": 0.05,
-        "cache_miss": 1.5,
-        "output": 4.5,
-    },
-}
-DEFAULT_MODEL = "deepseek-v4-flash"
-
-
-def compute_cost(m, model, pricing="auto"):
-    """按转录角色近似估算费用：user+tool≈输入，assistant≈输出。
-    pricing: auto(按 m 里 peak_ratio 加权) / offpeak(×1) / peak(×2)。
-    返回 (无缓存·上限, 全缓存命中·下限) 元。"""
-    p = PRICING.get(model, PRICING[DEFAULT_MODEL])
-    # 价格系数：高峰价 = 空闲价 × 2
-    if pricing == "peak":
-        factor = 2.0
-    elif pricing == "offpeak":
-        factor = 1.0
-    else:  # auto：高峰占比 f → 综合系数 = 1 + f
-        # 例如一半事件在高峰(f=0.5) → 系数 1.5，即 0.5×1 + 0.5×2 的加权
-        factor = 1.0 + m.get("peak_ratio", 0.0)
-    inp = m["user_tok"] + m["tool_tok"]  # 输入 ≈ 你发的 + 工具结果
-    out = m["assistant_tok"]  # 输出 ≈ 模型的回复
-    # 价格单位是"元/百万 token"，所以除以 1e6
-    nocache = (inp * p["cache_miss"] + out * p["output"]) / 1e6 * factor
-    allcache = (inp * p["cache_hit"] + out * p["output"]) / 1e6 * factor
-    return nocache, allcache  # (最贵, 最便宜) 两个极端，真实值在中间
 
 
 def measure_file(path, tok):
@@ -239,10 +201,16 @@ def run_scan(args, compact=False):
                 ).fetchone()
                 if hit:
                     continue
-            # 需要（重）算：measure_file 统计 + compute_cost 估费
+            # 需要（重）算：measure_file 统计 + 共用定价估算费用
             m = measure_file(f, tok)
-            nocache, allcache = compute_cost(m, args.model, pricing=args.pricing)
-            m["cost_nocache"], m["cost_allcache"] = nocache, allcache
+            nocache, allcache = cost_from_roles(
+                m["user_tok"],
+                m["tool_tok"],
+                m["assistant_tok"],
+                peak_ratio=m["peak_ratio"],
+                model=args.model,
+                pricing=args.pricing,
+            )
             con.execute(
                 "INSERT OR REPLACE INTO session_usage(session_id,file,workspace,"
                 "first_ts,last_ts,n_events,user_tok,assistant_tok,tool_tok,total_tok,"
@@ -278,146 +246,32 @@ def run_scan(args, compact=False):
             )
     con.commit()
 
-    # 展示用：从库里读全量行（含未变化的缓存行）
-    ws_rank = {ws_name: i for i, (_d, ws_name, _m) in enumerate(dirs)}
-    rows = [
-        (
-            ws,
-            sid,
-            {
-                "last_ts": last_ts,
-                "n_events": n_events,
-                "user_tok": user_tok,
-                "assistant_tok": assistant_tok,
-                "tool_tok": tool_tok,
-                "total_tok": total_tok,
-                "cost_nocache": cost_nocache,
-                "cost_allcache": cost_allcache,
-            },
-        )
-        for ws, sid, last_ts, n_events, user_tok, assistant_tok, tool_tok, total_tok, cost_nocache, cost_allcache in con.execute(
-            "SELECT workspace,session_id,last_ts,n_events,user_tok,assistant_tok,"
-            "tool_tok,total_tok,cost_nocache,cost_allcache FROM session_usage"
-        )
-    ]
-    # 排序：先会话时间 新→旧，再按工作区 rank（新→旧）稳定排序保持组内顺序
-    rows.sort(key=lambda r: r[2]["last_ts"] or "", reverse=True)
-    rows.sort(key=lambda r: ws_rank.get(r[0], len(dirs)))
+    # 汇总（用 SQL 聚合，报告/图表暂时不做）
+    n, total_tok, cost_hi, cost_lo = con.execute(
+        "SELECT COUNT(*), COALESCE(SUM(total_tok),0),"
+        " COALESCE(SUM(cost_nocache),0), COALESCE(SUM(cost_allcache),0)"
+        " FROM session_usage"
+    ).fetchone()
     con.close()
-
-    if args.top > 0:
-        rows = rows[: args.top]
-
-    grand = {
-        "user_tok": 0.0,
-        "assistant_tok": 0.0,
-        "tool_tok": 0.0,
-        "total_tok": 0.0,
-        "cost_nocache": 0.0,
-        "cost_allcache": 0.0,
-    }
-    for _ws, _sid, m in rows:
-        for k in grand:
-            grand[k] += m[k]
-
-    if args.pricing == "peak":
-        price_note = "高峰价"
-    elif args.pricing == "offpeak":
-        price_note = "空闲价"
-    else:
-        price_note = "auto(按时间)"
 
     if compact:
         print(
-            f"[{datetime.now().strftime('%H:%M:%S')}] 工作区 {len(dirs)} | 会话 {len(rows)}"
-            f" | 总token {grand['total_tok']:,.0f}"
-            f" | 费用 ¥{grand['cost_nocache']:.2f}↑/¥{grand['cost_allcache']:.2f}↓"
-            f" | 重算{n_changed}"
+            f"[{datetime.now().strftime('%H:%M:%S')}] 工作区 {len(dirs)} | 会话 {n}"
+            f" | 总token {total_tok:,.0f}"
+            f" | 费用 ¥{cost_hi:.2f}↑/¥{cost_lo:.2f}↓ | 重算{n_changed}"
         )
     else:
-        print(f"转录目录 : {', '.join(d[0] for d in dirs)}")
-        print(f"会话数量 : {len(rows)}  | 统计方式: {mode}  | 本次重算: {n_changed}")
-        print(f"计费模型 : {args.model}  | 价格: {price_note}")
-        print(f"费用列: ↑=无缓存(上限)  ↓=全缓存命中(下限)，单位 元")
-        print(f"数据库   : {args.db}\n")
-        hdr = (
-            f"{'工作区':<10}{'会话':<14}{'最后活动':<17}{'事件':>6}{'user':>8}"
-            f"{'asst':>9}{'tool':>9}{'合计':>9}{'费用↑':>9}{'费用↓':>9}"
-        )
-        print(hdr)
-        print("-" * len(hdr))
-        for ws_name, sid, m in rows:
-            last = (m["last_ts"] or "")[:16]
-            print(
-                f"{ws_name[:9]:<10}{sid[:14]:<14}{last:<17}{m['n_events']:>6}"
-                f"{m['user_tok']:>8,.0f}{m['assistant_tok']:>9,.0f}"
-                f"{m['tool_tok']:>9,.0f}{m['total_tok']:>9,.0f}"
-                f"{m['cost_nocache']:>9,.2f}{m['cost_allcache']:>9,.2f}"
-            )
-        print("-" * len(hdr))
+        print(f"转录目录 : {len(dirs)} 个工作区 | 统计方式: {mode}")
+        print(f"数据库   : {args.db}")
         print(
-            f"{'合计':<10}{'':<14}{'':<17}{'':>6}"
-            f"{grand['user_tok']:>8,.0f}{grand['assistant_tok']:>9,.0f}"
-            f"{grand['tool_tok']:>9,.0f}{grand['total_tok']:>9,.0f}"
-            f"{grand['cost_nocache']:>9,.2f}{grand['cost_allcache']:>9,.2f}"
+            f"会话 {n} 个（本次重算 {n_changed}）| 总token {total_tok:,.0f}"
+            f" | 费用 ¥{cost_hi:.2f}↑/¥{cost_lo:.2f}↓"
         )
-
-    if args.chart and not compact:
-        try:
-            import matplotlib
-
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-            from matplotlib import font_manager
-        except ImportError:
-            print("未安装 matplotlib，跳过图表。")
-            return
-        for name in ("Microsoft YaHei", "SimHei", "PingFang SC"):
-            if any(
-                name.lower() in f.name.lower() for f in font_manager.fontManager.ttflist
-            ):
-                plt.rcParams["font.sans-serif"] = [name]
-                break
-        plt.rcParams["axes.unicode_minus"] = False
-
-        labels = [f"{ws[:4]}:{sid[:9]}" for ws, sid, _m in rows]
-        u = [m["user_tok"] for _w, _s, m in rows]
-        a = [m["assistant_tok"] for _w, _s, m in rows]
-        t = [m["tool_tok"] for _w, _s, m in rows]
-        cn = [m["cost_nocache"] for _w, _s, m in rows]
-
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7))
-        x = range(len(rows))
-        ax1.bar(x, u, label="user", color="#55A868")
-        ax1.bar(x, a, bottom=u, label="assistant", color="#4C72B0")
-        ax1.bar(
-            x,
-            t,
-            bottom=[u[i] + a[i] for i in range(len(rows))],
-            label="tool",
-            color="#DD8452",
-        )
-        ax1.set_ylabel("tokens")
-        ax1.set_title("各会话 token 消耗（真实 DeepSeek tokenizer）")
-        ax1.legend()
-        ax2.bar(x, cn, color="#C44E52", label=f"费用(无缓存, {price_note}) 元")
-        ax2.set_ylabel("元")
-        ax2.set_xlabel("会话")
-        ax2.legend()
-        for axx in (ax1, ax2):
-            axx.set_xticks(list(x))
-            axx.set_xticklabels(labels, rotation=45, ha="right")
-        fig.tight_layout()
-        os.makedirs(CHART_DIR, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = os.path.join(CHART_DIR, f"sessions_{ts}.png")
-        fig.savefig(out, dpi=150)
-        print(f"\n图表已保存: {out}（带时间戳，不会覆盖旧图）")
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="扫描本地 Copilot 转录，更新 token 消耗表（SQLite）"
+        description="路1（估算）：读转录 → token 数 → 估算费用 → 写 usage_sessions.db"
     )
     ap.add_argument(
         "--dir", default=None, help="transcripts 目录（默认自动识别全部工作区）"
@@ -435,8 +289,6 @@ def main():
         default="auto",
         help="价格时段：auto=按事件时间自动（默认）/ offpeak=一律空闲 / peak=一律高峰",
     )
-    ap.add_argument("--chart", action="store_true", help="生成带时间戳的图表 charts/")
-    ap.add_argument("--top", type=int, default=0, help="只显示前 N 大会话（0=全部）")
     ap.add_argument(
         "--watch",
         type=int,

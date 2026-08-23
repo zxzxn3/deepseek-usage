@@ -1,93 +1,75 @@
-# DeepSeek token 用量记录工具
+# DeepSeek token 用量记录（两路拆分）
 
-通过 **DeepSeek API**（`api.deepseek.com`，OpenAI 兼容）获取**真实 token 用量**（`usage` 对象），落库 + 画图。
+你在 **VS Code Copilot Chat**（通过 `Vizards/deepseek-v4-for-copilot` 扩展）里用 **DeepSeek API**。
+本项目用**两条独立路线**记录 token 消耗，外加一个**共用定价模块**：
 
-> 为什么需要它：你的设置是直连 **DeepSeek API**（不是 GitHub Copilot——你没买 Copilot 订阅）。DeepSeek 每次响应都带 `usage`（含 prompt/completion/total，以及缓存的 cache_hit/cache_miss）。本工具在本地记录每一次调用的 usage 并可视化。
->
-> 最简单的替代方案：登录 **platform.deepseek.com → Usage**，官方仪表板已有历史汇总。本工具适合你想要**每请求粒度 + 本地图表**时使用。
+```
+token_usage/
+  common/           共用：官方定价表 + 费用计算（两条路共用）
+  path1_transcript/ 路1（估算）：读本地转录 → tokenizer 数 token → 估算费用 → usage_sessions.db
+  path2_api/        路2（精确）：拦截真实请求 → 把响应里的 usage → usage.db
+```
+
+## 两条路对比
+
+| | 路1 `path1_transcript/scan.py` | 路2 `path2_api/proxy.py` |
+| --- | --- | --- |
+| 数据来源 | 读本地 Copilot 转录（事后） | 拦截/手动发真实请求（在线） |
+| 精度 | 分词精确，但**总量偏低**（事件≠请求） | **精确**（每请求真实 usage） |
+| 覆盖 | 全部历史会话 | 只覆盖启用代理之后的请求 |
+| 数据库 | `path1_transcript/usage_sessions.db` | `path2_api/usage.db` |
+| 是否需要 key | 否 | 是（`DEEPSEEK_API_KEY`） |
 
 ## 依赖
 
 - Python 3.10+（本项目 `.venv` 已是 3.12）
-- `matplotlib`（画图，已安装）
-- `tokenizers`（转录精确计数，DeepSeek/任意 tokenizer.json，已安装）
-- `tiktoken`（OpenAI 系 token 计数，已安装）
-- 其余全部**标准库**（`http.server` / `urllib` / `sqlite3`）
+- `tokenizers`（路1 精确计数，已装）
+- `tiktoken`（OpenAI 系计数，可选，已装）
+- 其余全部**标准库**
 
-## 凭据（重要）
-
-读取环境变量 **`DEEPSEEK_API_KEY`**（在 platform.deepseek.com 申请）。
-**不要把 key 发给任何 AI** —— 直接在终端里设置：
+## 路1：转录估算（不需要 key）
 
 ```powershell
-$env:DEEPSEEK_API_KEY = "sk-..."    # 会话级，关掉终端即失效
+# 扫描全部工作区 → 写 usage_sessions.db（增量：只重算变化的会话）
+& d:\Flow-1.5\.venv\Scripts\python.exe path1_transcript\scan.py
+# 监听模式（每 N 秒更新一行摘要）
+& d:\Flow-1.5\.venv\Scripts\python.exe path1_transcript\scan.py --watch 5
+# 调试单文件 / 单文本
+& d:\Flow-1.5\.venv\Scripts\python.exe path1_transcript\measure.py <transcript.jsonl> --turns 8 --ctx 5
+& d:\Flow-1.5\.venv\Scripts\python.exe path1_transcript\measure.py --text "你的文本"
 ```
 
-## 用法
+- 多工作区自动识别（不写死用户名）；schema 版本变了才重建库，稳定后增量更新。
+- 费用用 `common/pricing.py`（`--pricing auto` 按事件时间自动分高峰/空闲）。
+
+## 路2：真实 usage（需要 key）
 
 ```powershell
-# 1) 一次性验证 + 记录一次真实 usage（确认 key 可用）
-& d:\Flow-1.5\.venv\Scripts\python.exe deepseek_usage.py check --model deepseek-v4-flash --prompt "hi"
+$env:DEEPSEEK_API_KEY = "sk-..."          # 在终端设置，别发 AI
 
-# 2) 启动本地代理（把任意 OpenAI 兼容客户端指向这里，转发到 DeepSeek 并记录每次 usage）
-& d:\Flow-1.5\.venv\Scripts\python.exe deepseek_usage.py proxy --port 8080
-#    客户端 base_url 设为 http://127.0.0.1:8080/v1
+# 验证 + 记录一次
+& d:\Flow-1.5\.venv\Scripts\python.exe path2_api\proxy.py check --prompt "hi"
 
-# 3) 查看记录
-& d:\Flow-1.5\.venv\Scripts\python.exe deepseek_usage.py list --limit 20
+# 启动拦截代理（事件触发式：来请求才记账）
+& d:\Flow-1.5\.venv\Scripts\python.exe path2_api\proxy.py proxy --port 8080
 
-# 4) 汇总 + 生成每日 token 图（输出到 charts\usage_daily.png）
-& d:\Flow-1.5\.venv\Scripts\python.exe deepseek_usage.py report
+# 查看记录
+& d:\Flow-1.5\.venv\Scripts\python.exe path2_api\proxy.py list --limit 20
 ```
 
-## 本地转录 token 统计（不需要 DeepSeek key）
-
-用**真实 tokenizer** 精确统计 VS Code Copilot 聊天转录——所有轮次都留存在本地 `GitHub.copilot-chat\transcripts\*.jsonl`。默认**自动定位转录目录**（不写死用户名）；tokenizer 用 `--tokenizer` 指定：
-- `tokenizer.json` 路径（任意 HuggingFace/tokenizers BPE 模型，DeepSeek 默认自动查找）
-- tiktoken 编码名（OpenAI 系：`o200k_base` / `cl100k_base` 等）
-
-```powershell
-# 1) 更新持久化消耗表（扫描全部工作区 → SQLite + 打印 token/费用汇总 + 图表）
-& d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --chart
-#    可选：计费模型 / 价格时段(默认 auto 按时间) / 换 tokenizer / 监听模式
-& d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --chart --model deepseek-v4-flash --pricing auto
-& d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --tokenizer o200k_base
-& d:\Flow-1.5\.venv\Scripts\python.exe update_usage_table.py --watch 10   # 每 10 秒更新一行摘要
-
-# 2) 精确统计单个转录：总数 + 最近轮次 + 每轮 user 消息时的累计上下文
-& d:\Flow-1.5\.venv\Scripts\python.exe measure_transcript.py <transcript.jsonl> --turns 8 --ctx 5
-
-# 3) 精确数任意文本（可指定 tokenizer）
-& d:\Flow-1.5\.venv\Scripts\python.exe measure_transcript.py --text "你的文本" --tokenizer o200k_base
+**接入 Copilot**：把扩展的 `baseUrl` 指向代理，则每次真实聊天请求都会落库：
+```json
+"deepseek-copilot.baseUrl": "http://127.0.0.1:8080"
 ```
 
-**多工作区**：自动扫描 `%APPDATA%` 下全部工作区的转录目录，排序 = 工作区修改时间新→旧，再按各会话时间新→旧；表格带工作区列。
+## common/pricing.py（共用）
 
-**费用估算**：按转录角色近似（user+tool≈输入、assistant≈输出）× 官方定价。`--pricing` 默认 `auto`——按每条事件时间戳自动判断北京高峰/空闲加权（高峰价=空闲价×2）；也可强制 `offpeak` / `peak`。缓存命中与否未知，故给上下限：`费用↑`=无缓存（上限）、`费用↓`=全缓存命中（下限）。价格基于 2026-08 官方页面，需自行留意变更。
+- `PRICING`：官方定价表（2026-08，含缓存命中/未命中/输出）
+- `cost_from_roles`：路1 用（角色→输入/输出估算）
+- `cost_from_usage`：路2 用（精确 usage 计费）
 
-输出：`usage_sessions.db`（表 `session_usage`，每次运行重算并 upsert）、`charts\sessions_YYYYMMDD_HHMMSS.png`（**带时间戳，不覆盖旧图**）。
+## 说明
 
-> 注意：这些是**转录正文**的精确 token 数；真实每请求还含注入上下文（系统提示/工具 schema/技能清单等），权威精确值以 platform.deepseek.com 仪表板为准。
+- 报告/图表暂时移除，专注打磨两条管线；后续需要时再加。
+- 权威精确值始终以 **platform.deepseek.com 仪表板**为准。
 
-## 模型
-
-- `deepseek-v4-flash`（默认，V4 系列对话模型，价格最低）
-- `deepseek-v4-pro`（更强，价格更高）
-- `deepseek-v4-flash-vision-exp`（多模态实验版）
-- 用 `--model` 指定；代理模式则透传请求体里的 `model` 字段。
-
-## 输出文件
-
-| 文件 | 说明 |
-| --- | --- |
-| `usage.db` | SQLite，表 `usage_log`（ts/model/prompt/completion/total/cache_hit/cache_miss/…） |
-| `usage.jsonl` | 每行一条 JSON 记录，便于 grep |
-| `charts\usage_daily.png` | 每日 prompt/completion 堆叠柱状图 + 合计折线 |
-
-均已被 `.gitignore` 忽略，不会被提交。
-
-## 注意
-
-- `report` 只统计 `status=200` 且带 usage 的记录。
-- 代理对超长流式输出会先缓存再转发（个人日志够用）。
-- 本工具只记录**启用之后**经过它的请求；历史用量请直接看 platform.deepseek.com 仪表板。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""measure_transcript.py — 统计 Copilot 聊天转录 / 任意文本的 token 数。
+"""path1/measure.py — tokenizer 加载、token 计数、转录事件解析（路1 的核心计算模块）。
 
 优先用真实 tokenizer 精确计数；找不到时回退到启发式估算。
 支持多种 tokenizer（--tokenizer）：
@@ -7,14 +7,9 @@
   - tiktoken 编码名（OpenAI 系：o200k_base / cl100k_base / p50k_base / r50k_base）
 默认自动查找 DeepSeek tokenizer.json（环境变量 DEEPSEEK_TOKENIZER 可覆盖）。
 
-用法:
-    python measure_transcript.py <transcript.jsonl> [--tokenizer spec] [--turns N]
-    python measure_transcript.py --text "要统计的文本" [--tokenizer spec]
-
-参数:
-    --tokenizer   tokenizer.json 路径 或 tiktoken 编码名
-    --turns N     额外打印最近 N 轮 user/assistant 的 token 数
-    --text        直接统计这段文本，不读转录
+也提供独立 CLI 便于调试：
+    python measure.py <transcript.jsonl> [--tokenizer spec] [--turns N] [--ctx N]
+    python measure.py --text "要统计的文本" [--tokenizer spec]
 
 依赖: pip install tokenizers / tiktoken（精确模式）。未装时自动用字符估算。
 """
