@@ -1,6 +1,6 @@
-// UI strings dictionary. English is the primary language (default).
-// Manual translation: edit the `zh` values below, then set
-// `deepseekUsage.language` to "zh-cn" to preview.
+// UI strings dictionary. Language follows the VS Code display language
+// (Chinese interface → Chinese, otherwise English).
+// Manual translation: edit the `zh` values below to refine the Chinese strings.
 import * as vscode from "vscode";
 
 export type Lang = "en" | "zh-cn";
@@ -10,8 +10,8 @@ const dict: Record<string, { en: string; zh: string }> = {
   cost: { en: "Cost", zh: "费用" },
   cacheCost: { en: "Cache cost", zh: "缓存费用" },
   cacheHit: { en: "Cache hit", zh: "缓存命中" },
-  totalToken: { en: "Total tokens", zh: "总token" },
-  cacheToken: { en: "Cached tokens", zh: "缓存token" },
+  totalToken: { en: "Total tokens", zh: "总词元" },
+  cacheToken: { en: "Cached tokens", zh: "缓存词元" },
   input: { en: "Input", zh: "输入" },
   output: { en: "Output", zh: "输出" },
   proxy: { en: "Proxy", zh: "代理" },
@@ -58,21 +58,14 @@ const dict: Record<string, { en: string; zh: string }> = {
   statusFormatFull: { en: "Full · cost + tokens", zh: "完整 · 费用 + token" },
   statusFormatCost: { en: "Cost only", zh: "仅费用" },
   statusFormatTokens: { en: "Tokens only", zh: "仅 token" },
-  statusFormatTotalT: { en: "Total tokens (no cache)", zh: "总token（不含缓存）" },
-  statusFormatTotalCost: { en: "Total cost (no cache)", zh: "总cost（不含缓存）" },
+  statusFormatTotalT: { en: "Total tokens", zh: "总token" },
+  statusFormatTotalCost: { en: "Total cost", zh: "总cost" },
   openDetails: { en: "Open today's details", zh: "查看今日明细" },
 };
 
-/** Current language: explicit config wins; "auto" follows the VS Code display language (English unless Chinese). */
+/** Language follows the VS Code display language (Chinese interface → Chinese, otherwise English). */
 export function lang(): Lang {
-  const c = vscode.workspace
-    .getConfiguration("deepseekUsage")
-    .get<string>("language", "en");
-  if (c === "zh-cn") return "zh-cn";
-  if (c === "auto") {
-    return vscode.env.language.toLowerCase().startsWith("zh") ? "zh-cn" : "en";
-  }
-  return "en";
+  return vscode.env.language.toLowerCase().startsWith("zh") ? "zh-cn" : "en";
 }
 
 export function isZh(): boolean {

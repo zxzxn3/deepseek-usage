@@ -69,12 +69,6 @@
           "minimum": 2,
           "description": "%config.pollIntervalSeconds%"
         },
-        "deepseekUsage.language": {
-          "type": "string",
-          "enum": ["auto", "en", "zh-cn"],
-          "default": "en",
-          "description": "%config.language%"
-        },
         "deepseekUsage.statusBarFormat": {
           "type": "string",
           "enum": ["full", "cost", "tokens", "totalT", "totalCost"],
