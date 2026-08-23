@@ -4,6 +4,8 @@
   "command.toggleProxy": "DeepSeek Usage: 切换代理",
   "command.proxyStart": "DeepSeek Usage: 启动代理",
   "command.proxyStop": "DeepSeek Usage: 停止代理",
+  "command.statusBarFormat": "DeepSeek Usage: 状态栏格式",
+  "config.statusBarFormat": "状态栏显示格式：full（费用+token）、cost（仅费用）或 tokens（仅 token）。",
   "config.title": "DeepSeek Usage",
   "config.port": "本地代理监听端口。",
   "config.autoStart": "VS Code 启动时自动拉起代理。",

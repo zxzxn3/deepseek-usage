@@ -45,13 +45,16 @@ export function activate(context: vscode.ExtensionContext) {
     100,
   );
   statusBar.name = "DeepSeek Usage";
-  statusBar.command = "deepseekUsage.showStats";
+  statusBar.command = "deepseekUsage.statusBarFormat";
   statusBar.show();
 
   context.subscriptions.push(
     vscode.commands.registerCommand("deepseekUsage.showStats", () => showStats()),
     vscode.commands.registerCommand("deepseekUsage.toggleProxy", () =>
       toggleProxy(context),
+    ),
+    vscode.commands.registerCommand("deepseekUsage.statusBarFormat", () =>
+      showStatusFormatMenu(),
     ),
   );
   updateProxyContext(); // 初始化命令面板里"启动/停止"的显示状态
@@ -63,6 +66,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("deepseekUsage.pollIntervalSeconds")) {
         startPolling();
+      }
+      if (e.affectsConfiguration("deepseekUsage.statusBarFormat")) {
+        renderStatusBar();
       }
     }),
   );
@@ -80,6 +86,11 @@ export function deactivate() {
 
 function getCfg(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("deepseekUsage");
+}
+
+type StatusFormat = "full" | "cost" | "tokens";
+function getStatusFormat(): StatusFormat {
+  return getCfg().get<StatusFormat>("statusBarFormat", "full");
 }
 
 function pollIntervalMs(): number {
@@ -123,12 +134,18 @@ function renderStatusBar() {
   if (!statusBar) return;
   const s = stats;
   const running = proxyProc !== null && !proxyProc.killed;
+  const fmt = getStatusFormat();
   if (s.t === 0 && s.cost === 0) {
     statusBar.text = `$(credit-card) ￥--/--  --/--`;
   } else {
+    const costText = `￥${s.cost.toFixed(4)}/${s.chCost.toFixed(4)}`;
+    const tokText = `${fmtTok(s.t)}/${fmtTok(s.ch)}`;
     statusBar.text =
-      `$(credit-card) ￥${s.cost.toFixed(4)}/${s.chCost.toFixed(4)}  ` +
-      `${fmtTok(s.t)}/${fmtTok(s.ch)}`;
+      fmt === "cost"
+        ? `$(credit-card) ${costText}`
+        : fmt === "tokens"
+          ? `$(credit-card) ${tokText}`
+          : `$(credit-card) ${costText}  ${tokText}`;
   }
   statusBar.tooltip = new vscode.MarkdownString(
     `${t("todayBeijing")}\n\n` +
@@ -154,6 +171,34 @@ function showStats() {
     recent: recentRecs,
     peakNow: isPeakBeijing(new Date()),
   }));
+}
+
+/** 状态栏点击：选择显示格式（附今日明细入口），选择持久化到配置。 */
+async function showStatusFormatMenu() {
+  const current = getStatusFormat();
+  const check = (f: StatusFormat) => (current === f ? "$(check) " : "");
+  const choices: { id: StatusFormat | "details"; label: string; desc: string }[] = [
+    { id: "full", label: `${check("full")}${t("statusFormatFull")}`, desc: "￥cost/chCost  totalT/cacheT" },
+    { id: "cost", label: `${check("cost")}${t("statusFormatCost")}`, desc: "￥cost/chCost" },
+    { id: "tokens", label: `${check("tokens")}${t("statusFormatTokens")}`, desc: "totalT/cacheT" },
+    { id: "details", label: `$(list-unordered) ${t("openDetails")}`, desc: "" },
+  ];
+  const picked = await vscode.window.showQuickPick(
+    choices.map((c) => ({ label: c.label, description: c.desc })),
+    { placeHolder: t("statusFormatTitle") },
+  );
+  const chosen = choices.find((c) => c.label === picked?.label);
+  if (!chosen) return;
+  if (chosen.id === "details") {
+    showStats();
+    return;
+  }
+  await getCfg().update(
+    "statusBarFormat",
+    chosen.id,
+    vscode.ConfigurationTarget.Global,
+  );
+  renderStatusBar();
 }
 
 /** 切换代理：运行中则停止，否则启动。 */

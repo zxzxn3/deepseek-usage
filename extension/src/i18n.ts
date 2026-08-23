@@ -17,7 +17,7 @@ const dict: Record<string, { en: string; zh: string }> = {
   proxy: { en: "Proxy", zh: "代理" },
   proxyRunning: { en: "running", zh: "运行中" },
   proxyStopped: { en: "not running", zh: "未运行" },
-  clickForDetails: { en: "Click to view today's details", zh: "点此查看今日明细" },
+  clickForDetails: { en: "Click to switch format / view details", zh: "点击切换格式 / 查看明细" },
   proxyAlreadyRunning: {
     en: "DeepSeek Usage proxy is already running",
     zh: "DeepSeek Usage 代理已在运行",
@@ -54,6 +54,11 @@ const dict: Record<string, { en: string; zh: string }> = {
     en: "Auto-refreshes every 5s · today's proxied requests only (Beijing time).",
     zh: "每 5 秒自动刷新 · 仅统计今天（北京时间）经代理的请求。",
   },
+  statusFormatTitle: { en: "Status bar display format", zh: "状态栏显示格式" },
+  statusFormatFull: { en: "Full · cost + tokens", zh: "完整 · 费用 + token" },
+  statusFormatCost: { en: "Cost only", zh: "仅费用" },
+  statusFormatTokens: { en: "Tokens only", zh: "仅 token" },
+  openDetails: { en: "Open today's details", zh: "查看今日明细" },
 };
 
 /** Current language: explicit config wins; "auto" follows the VS Code display language (English unless Chinese). */

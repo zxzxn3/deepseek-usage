@@ -25,6 +25,10 @@
       {
         "command": "deepseekUsage.toggleProxy",
         "title": "%command.toggleProxy%"
+      },
+      {
+        "command": "deepseekUsage.statusBarFormat",
+        "title": "%command.statusBarFormat%"
       }
     ],
     "menus": {
@@ -70,6 +74,12 @@
           "enum": ["auto", "en", "zh-cn"],
           "default": "en",
           "description": "%config.language%"
+        },
+        "deepseekUsage.statusBarFormat": {
+          "type": "string",
+          "enum": ["full", "cost", "tokens"],
+          "default": "full",
+          "description": "%config.statusBarFormat%"
         }
       }
     }
