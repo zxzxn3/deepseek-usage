@@ -354,19 +354,16 @@ def _status_text() -> str:
 
 
 def _emit_row(line: str) -> None:
-    """实时行 + 底部 2 行粘性块（表头 + 统计栏）：整段在锁内完成，避免多线程打印交错。
+    """实时行 + 底部统计栏：整段在锁内完成，避免多线程打印交错。
 
-    粘性块固定占底部 2 行，光标停在统计栏行内（不加换行）。每来一行：
-    清掉 2 行块 → 新行写在块顶行位置 → 下方重画表头 + 统计栏。
+    关键：统计栏用 sys.stdout.write 且不加换行，让光标停在统计栏行内；
+    否则 print 的 \n 会把光标推到下方空行，下次 \r\x1b[K 清不掉旧统计栏。
     """
     with _print_lock:
         if _status_enabled:
-            sys.stdout.write("\r\x1b[K")  # 清统计栏行
-            sys.stdout.write("\x1b[A")  # 光标上移一行（到表头行）
-            sys.stdout.write("\r\x1b[K")  # 清表头行
+            sys.stdout.write("\r\x1b[K")
         print(line, flush=True)
         if _status_enabled:
-            print(_HDR)
             sys.stdout.write(_status_text())
             sys.stdout.flush()
 
@@ -773,18 +770,15 @@ def cmd_proxy(args):
     if _status_enabled:
         print(_HDR)
         print(_SEP)
-        print(_HDR)  # 底部粘性块：表头行
         sys.stdout.write(
             _status_text()
-        )  # 底部粘性块：统计栏行（不加换行，光标停在块内）
+        )  # 不加换行：光标停在统计栏行内，下次才能清掉重写
         sys.stdout.flush()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         if _status_enabled:
-            sys.stdout.write("\r\x1b[K")  # 清统计栏行
-            sys.stdout.write("\x1b[A")  # 光标上移一行
-            sys.stdout.write("\r\x1b[K")  # 清表头行
+            sys.stdout.write("\r\x1b[K")
         print("已停止。")
         srv.server_close()
 
