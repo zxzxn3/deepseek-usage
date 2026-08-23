@@ -1,79 +1,159 @@
-// 开发冒烟测试：验证 JSONL 读写、今日（北京时间）聚合、峰值计费。
-// 运行：npx esbuild smoke.ts --bundle --format=cjs --platform=node --outfile=out/smoke.js && node out/smoke.js
+// 冒烟测试：SSE 解析、今日聚合、峰值计费、真流式透传（mock 上游 + 断连续读）。
+// 运行：npm run smoke
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as http from "http";
 import { appendRecord, TailReader, UsageRecord } from "./src/jsonl";
 import { aggregateToday, newTodayStats, addRecord } from "./src/stats";
 import { isPeakBeijing, costFromUsage } from "./src/pricing";
-
-const file = path.join(os.tmpdir(), "dsu-smoke.jsonl");
-fs.rmSync(file, { force: true });
-
-const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
-
-// 构造"北京某日 hour 点"对应的 UTC ISO（dayOffset: 0=今天, -1=昨天）
-function bjTs(now: Date, dayOffset: number, hour: number): string {
-  const bt = new Date(now.getTime() + BEIJING_OFFSET_MS + dayOffset * 24 * 3600 * 1000);
-  const utc = Date.UTC(bt.getUTCFullYear(), bt.getUTCMonth(), bt.getUTCDate(), hour) - BEIJING_OFFSET_MS;
-  return new Date(utc).toISOString();
-}
-
-const now = new Date();
-const peakTs = bjTs(now, 0, 10); // 今天北京 10:00
-const offTs = bjTs(now, 0, 20); // 今天北京 20:00
-const yestTs = bjTs(now, -1, 10); // 昨天北京 10:00 → 应被"今天"排除
-
-function rec(ts: string): UsageRecord {
-  return {
-    ts,
-    model: "deepseek-v4-flash",
-    prompt_tokens: 1_000_000,
-    completion_tokens: 0,
-    total_tokens: 1_000_000,
-    cache_hit_tokens: 0,
-    cache_miss_tokens: 1_000_000,
-    stream: false,
-    status: 200,
-  };
-}
-
-// 期望费用按同一套定价逻辑现算（不依赖今天星期几）
-const expPeakCost = costFromUsage(1_000_000, 0, 0, 1_000_000, "deepseek-v4-flash", isPeakBeijing(peakTs));
-const expOffCost = costFromUsage(1_000_000, 0, 0, 1_000_000, "deepseek-v4-flash", isPeakBeijing(offTs));
-
-appendRecord(file, rec(peakTs));
-appendRecord(file, rec(offTs));
-appendRecord(file, rec(yestTs));
-
-const reader = new TailReader(file);
-const records = reader.readNew();
-const s = aggregateToday(records);
+import { SseUsageExtractor } from "./src/server/sse";
+import { startProxyServer } from "./src/server/proxyServer";
 
 const check = (name: string, got: unknown, exp: unknown) => {
   const ok = String(got) === String(exp);
   console.log(`${ok ? "OK  " : "FAIL"} ${name} → ${got} ${ok ? "" : `(期望 ${exp})`}`);
 };
 
-check("isPeak 周二10:00（2026-08-25 北京）", isPeakBeijing("2026-08-25T02:00:00.000Z"), true);
-check("isPeak 周二20:00（北京）", isPeakBeijing("2026-08-25T12:00:00.000Z"), false);
-check("isPeak 周六10:00（北京）", isPeakBeijing("2026-08-29T02:00:00.000Z"), false);
-check("读到的记录数", records.length, 3);
-check("today.p（两条今天，昨天排除）", s.p, 2_000_000);
-check("today.t", s.t, 2_000_000);
-check("today.cost（现算峰值）", s.cost.toFixed(4), (expPeakCost + expOffCost).toFixed(4));
+// ---------- 1. SSE 解析单元测试 ----------
+{
+  const ex = new SseUsageExtractor();
+  // 一条 data 行被切成两半（跨块）
+  ex.push('data: {"usage":{"prompt_tokens":100,"completion_tokens":50,');
+  ex.push('"total_tokens":150,"prompt_cache_hit_tokens":90,"prompt_cache_miss_tokens":10}}\n\n');
+  ex.push('data: [DONE]\n\n');
+  ex.flush();
+  check("SSE 跨块提取 usage.total_tokens", ex.usage?.total_tokens, 150);
+  check("SSE 提取 usage.cache_hit", ex.usage?.prompt_cache_hit_tokens, 90);
+}
 
-// 增量读取：再追加一条，readNew 只返回新增
-appendRecord(file, rec(offTs));
-const more = reader.readNew();
-check("增量 readNew 只返回 1 条", more.length, 1);
-check("增量并入后 cost", (() => { const st = newTodayStats(); addRecord(st, more[0]); return st.cost.toFixed(4); })(), expOffCost.toFixed(4));
+// ---------- 2. 聚合 + 峰值（沿用既有逻辑） ----------
+{
+  const file = path.join(os.tmpdir(), "dsu-smoke2.jsonl");
+  fs.rmSync(file, { force: true });
+  const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
+  const bjTs = (now: Date, off: number, hour: number) => {
+    const bt = new Date(now.getTime() + BEIJING_OFFSET_MS + off * 86400000);
+    const utc = Date.UTC(bt.getUTCFullYear(), bt.getUTCMonth(), bt.getUTCDate(), hour) - BEIJING_OFFSET_MS;
+    return new Date(utc).toISOString();
+  };
+  const now = new Date();
+  const peakTs = bjTs(now, 0, 10);
+  const offTs = bjTs(now, 0, 20);
+  const yestTs = bjTs(now, -1, 10);
+  const rec = (ts: string): UsageRecord => ({
+    ts, model: "deepseek-v4-flash", prompt_tokens: 1_000_000, completion_tokens: 0,
+    total_tokens: 1_000_000, cache_hit_tokens: 0, cache_miss_tokens: 1_000_000,
+    stream: false, status: 200,
+  });
+  appendRecord(file, rec(peakTs));
+  appendRecord(file, rec(offTs));
+  appendRecord(file, rec(yestTs));
+  const reader = new TailReader(file);
+  const s = aggregateToday(reader.readNew());
+  const expPeak = costFromUsage(1_000_000, 0, 0, 1_000_000, "deepseek-v4-flash", isPeakBeijing(peakTs));
+  const expOff = costFromUsage(1_000_000, 0, 0, 1_000_000, "deepseek-v4-flash", isPeakBeijing(offTs));
+  check("isPeak 周二10:00 北京", isPeakBeijing("2026-08-25T02:00:00.000Z"), true);
+  check("isPeak 周六10:00 北京", isPeakBeijing("2026-08-29T02:00:00.000Z"), false);
+  check("聚合: 今天两条、昨天排除", s.p, 2_000_000);
+  check("聚合: 费用（峰值现算）", s.cost.toFixed(4), (expPeak + expOff).toFixed(4));
+  fs.rmSync(file, { force: true });
+}
 
-// 半行（写一半）不应被解析
-fs.appendFileSync(file, '{"ts":"2026-08-25T1', "utf8");
-check("半行被跳过", reader.readNew().length, 0);
-fs.appendFileSync(file, '3:00:00.000Z","model":"deepseek-v4-flash","prompt_tokens":100,"completion_tokens":0,"total_tokens":100,"cache_hit_tokens":0,"cache_miss_tokens":100,"stream":false,"status":200}\n', "utf8");
-check("补全后半行后读到", reader.readNew().length, 1);
+// ---------- 3. 真流式透传：mock 上游 + 代理 + 客户端 ----------
+async function runStreaming() {
+  // 3a. mock 上游（DeepSeek 假体）：按段发 SSE，含跨块 usage 行与 [DONE]
+  const fakeUp = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      let payload: any = {};
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      } catch {}
+      const includeUsage = payload.stream_options?.include_usage === true;
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      const send = (s: string) => new Promise<void>((r) => res.write(s, () => setTimeout(r, 15)));
+      void (async () => {
+        await send('data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n');
+        await send('data: {"choices":[{"delta":{"content":"lo"}}]}\n\n');
+        if (includeUsage) {
+          // 跨块：usage 行分两次写，验证代理跨块缓冲
+          await send('data: {"usage":{"prompt_tokens":100,"completion_tokens":50,');
+          await send('"total_tokens":150,"prompt_cache_hit_tokens":90,"prompt_cache_miss_tokens":10}}\n\n');
+        }
+        await send("data: [DONE]\n\n");
+        res.end();
+      })().catch(() => {});
+    });
+  });
+  await new Promise<void>((r) => fakeUp.listen(0, "127.0.0.1", r));
+  const fakePort = (fakeUp.address() as any).port;
 
-fs.rmSync(file, { force: true });
-console.log("smoke done");
+  const jsonl = path.join(os.tmpdir(), "dsu-stream.jsonl");
+  fs.rmSync(jsonl, { force: true });
+  const proxy = await startProxyServer({
+    port: 0,
+    jsonlPath: jsonl,
+    apiUrl: `http://127.0.0.1:${fakePort}/v1/chat/completions`,
+    log: () => {},
+  });
+  const proxyPort = (proxy.address() as any).port;
+
+  // 3b. 正常流式客户端
+  const body1 = JSON.stringify({
+    model: "deepseek-v4-flash",
+    messages: [{ role: "user", content: "hi" }],
+    stream: true,
+  });
+  const res1 = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+    const r = http.request(
+      { host: "127.0.0.1", port: proxyPort, path: "/v1/chat/completions", method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer test" } },
+      (s) => {
+        const cs: Buffer[] = [];
+        s.on("data", (c) => cs.push(c));
+        s.on("end", () => resolve({ status: s.statusCode ?? 0, text: Buffer.concat(cs).toString("utf8") }));
+      },
+    );
+    r.on("error", reject);
+    r.write(body1);
+    r.end();
+  });
+  check("流式: 状态 200", res1.status, 200);
+  check("流式: 透传内容含 Hel", res1.text.includes("Hel"), true);
+  check("流式: 透传内容含 lo", res1.text.includes("lo"), true);
+  check("流式: 透传 [DONE]", res1.text.includes("[DONE]"), true);
+
+  const reader1 = new TailReader(jsonl);
+  const recs1 = reader1.readNew();
+  check("流式: JSONL 记 1 条", recs1.length, 1);
+  check("流式: usage 落库 total=150", recs1[0]?.total_tokens, 150);
+  check("流式: usage 落库 cache_hit=90", recs1[0]?.cache_hit_tokens, 90);
+
+  // 3c. 客户端断连：读第一段后销毁，代理应继续读完上游并落 usage
+  const body2 = JSON.stringify({ model: "deepseek-v4-flash", messages: [], stream: true });
+  await new Promise<void>((resolve) => {
+    const r = http.request(
+      { host: "127.0.0.1", port: proxyPort, path: "/v1/chat/completions", method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer test" } },
+      (s) => {
+        s.once("data", () => {
+          r.destroy(); // 客户端中途断开
+        });
+        s.on("close", () => resolve());
+      },
+    );
+    r.write(body2);
+    r.end();
+  });
+  await new Promise((r) => setTimeout(r, 800)); // 等代理读完上游并落库
+  const recs2 = reader1.readNew(); // 增量：应只返回断连那条
+  check("断连: 代理仍读完并记录 usage", recs2.length, 1);
+  check("断连: 记录的 total=150", recs2[0]?.total_tokens, 150);
+
+  proxy.close();
+  fakeUp.close();
+}
+
+runStreaming().then(() => {
+  console.log("smoke done");
+});

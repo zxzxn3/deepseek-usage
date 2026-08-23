@@ -1,14 +1,17 @@
-// 本地 OpenAI 兼容代理服务器（脚手架版）。
-// 当前：非流式转发 + 落 JSONL；流式透传（chunked/SSE/断连续读）是 R1，未实现→501。
-// R5 hook：log 回调即"可选终端"预留点——之后可把子进程 stdout 管道到 OutputChannel。
+// 本地 OpenAI 兼容代理服务器。
+// 支持：非流式转发 + 真流式透传（chunked / SSE 跨块缓冲 / 客户端断连续读 / 空闲超时）。
+// R5 hook：log 回调即"可选终端"预留点。
 import * as http from "http";
 import { appendRecord, UsageRecord } from "../jsonl";
+import { SseUsageExtractor } from "./sse";
 
-const API_URL = "https://api.deepseek.com/chat/completions";
+const DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
+const STREAM_IDLE_TIMEOUT_MS = 600 * 1000; // 流式等下一个字节的最大空闲时间
 
 export interface ProxyServerOptions {
   port: number;
   jsonlPath: string;
+  apiUrl?: string;
   log?: (line: string) => void;
 }
 
@@ -16,8 +19,9 @@ export function startProxyServer(
   opts: ProxyServerOptions,
 ): Promise<http.Server> {
   const { port, jsonlPath, log = console.log } = opts;
+  const apiUrl = opts.apiUrl ?? process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL;
   const server = http.createServer((req, res) => {
-    void handle(req, res, jsonlPath, log);
+    void handle(req, res, apiUrl, jsonlPath, log);
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -25,9 +29,51 @@ export function startProxyServer(
   });
 }
 
+function usageFields(u: any) {
+  u = u ?? {};
+  return {
+    pt: u.prompt_tokens ?? null,
+    ct: u.completion_tokens ?? null,
+    tt: u.total_tokens ?? null,
+    ch: u.prompt_cache_hit_tokens ?? null,
+    cm: u.prompt_cache_miss_tokens ?? null,
+  };
+}
+
+function recordAndLog(
+  jsonlPath: string,
+  log: (s: string) => void,
+  model: string,
+  u: any,
+  stream: boolean,
+  status: number,
+  error?: string,
+): void {
+  const f = usageFields(u);
+  const rec: UsageRecord = {
+    ts: new Date().toISOString(),
+    model,
+    prompt_tokens: f.pt,
+    completion_tokens: f.ct,
+    total_tokens: f.tt,
+    cache_hit_tokens: f.ch,
+    cache_miss_tokens: f.cm,
+    stream,
+    status,
+    error,
+  };
+  appendRecord(jsonlPath, rec);
+  log(
+    `[${new Date().toISOString()}] ${model} p ${f.pt} c ${f.ct} ` +
+      `t ${f.tt} cH ${f.ch} | ${stream ? "s" : "o"} ${status}` +
+      (error ? `  ✗ ${error}` : ""),
+  );
+}
+
 async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
+  apiUrl: string,
   jsonlPath: string,
   log: (s: string) => void,
 ): Promise<void> {
@@ -63,66 +109,171 @@ async function handle(
     res.end(JSON.stringify({ error: String(e) }));
     return;
   }
+  const model = payload.model ?? "deepseek-v4-flash";
 
   if (payload.stream) {
-    // R1：流式透传尚未实现
-    res.writeHead(501, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "streaming not implemented yet (R1)" }));
+    await handleStream(req, res, apiUrl, jsonlPath, log, model, payload);
     return;
   }
 
   const auth = req.headers.authorization ?? "";
-  const model = payload.model ?? "deepseek-v4-flash";
-
   try {
-    const up = await fetch(API_URL, {
+    const up = await fetch(apiUrl, {
       method: "POST",
-      headers: {
-        Authorization: auth,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: auth, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const raw = Buffer.from(await up.arrayBuffer());
-
-    let pt = null, ct = null, tt = null, ch = null, cm = null;
+    let u: any = null;
     try {
-      const d = JSON.parse(raw.toString("utf8"));
-      const u = d.usage ?? {};
-      pt = u.prompt_tokens ?? null;
-      ct = u.completion_tokens ?? null;
-      tt = u.total_tokens ?? null;
-      ch = u.prompt_cache_hit_tokens ?? null;
-      cm = u.prompt_cache_miss_tokens ?? null;
+      u = JSON.parse(raw.toString("utf8")).usage ?? null;
     } catch {
-      // 无 usage 字段
+      // 无 usage
     }
-
-    const rec: UsageRecord = {
-      ts: new Date().toISOString(),
-      model,
-      prompt_tokens: pt,
-      completion_tokens: ct,
-      total_tokens: tt,
-      cache_hit_tokens: ch,
-      cache_miss_tokens: cm,
-      stream: false,
-      status: up.status,
-    };
-    appendRecord(jsonlPath, rec);
-    log(
-      `[${new Date().toISOString()}] ${model} p ${pt} c ${ct} ` +
-        `cH ${ch} | s ${up.status}`,
-    );
-
+    recordAndLog(jsonlPath, log, model, u, false, up.status);
     res.writeHead(up.status, {
       "Content-Type": up.headers.get("content-type") ?? "application/json",
     });
     res.end(raw);
   } catch (e: any) {
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: String(e) }));
+    recordAndLog(jsonlPath, log, model, null, false, 0, String(e));
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: String(e) }));
+    }
   }
+}
+
+// 真流式透传：边收上游 chunk 边转发给客户端，末尾抓 usage 落库。
+// #1 客户端断开：停止转发，但继续读完上游以抓 usage（被中断的生成照样计费）。
+function handleStream(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  apiUrl: string,
+  jsonlPath: string,
+  log: (s: string) => void,
+  model: string,
+  payload: any,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const auth = req.headers.authorization ?? "";
+    const body = JSON.stringify({
+      ...payload,
+      stream_options: { include_usage: true, ...(payload.stream_options ?? {}) },
+    });
+
+    const upstream = http.request(apiUrl, {
+      method: "POST",
+      headers: { Authorization: auth, "Content-Type": "application/json" },
+    });
+    upstream.setTimeout(STREAM_IDLE_TIMEOUT_MS); // 空闲超时（长停顿不误杀）
+
+    const finish = () => resolve();
+
+    upstream.on("error", (e: Error) => {
+      recordAndLog(jsonlPath, log, model, null, true, 0, String(e));
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: String(e) }));
+      } else {
+        try {
+          res.end();
+        } catch {
+          /* ignore */
+        }
+      }
+      finish();
+    });
+
+    upstream.on("response", (upRes: http.IncomingMessage) => {
+      const status = upRes.statusCode ?? 0;
+
+      // 上游错误（如 401）：透传错误体 + 记录
+      if (status >= 400) {
+        const chunks: Buffer[] = [];
+        upRes.on("data", (c) => chunks.push(c));
+        upRes.on("end", () => {
+          const err = Buffer.concat(chunks);
+          if (!res.headersSent) {
+            res.writeHead(status, {
+              "Content-Type": upRes.headers["content-type"] ?? "application/json",
+            });
+            res.end(err);
+          }
+          recordAndLog(
+            jsonlPath,
+            log,
+            model,
+            null,
+            true,
+            status,
+            err.toString("utf8").slice(0, 200),
+          );
+          finish();
+        });
+        return;
+      }
+
+      // 成功：发响应头，chunked 流式
+      if (!res.headersSent) {
+        res.writeHead(status, {
+          "Content-Type": upRes.headers["content-type"] ?? "text/event-stream",
+          "Transfer-Encoding": "chunked",
+          "Access-Control-Allow-Origin": "*",
+        });
+      }
+
+      const extractor = new SseUsageExtractor();
+      let clientGone = false;
+      res.on("close", () => {
+        clientGone = true; // 客户端断开：停止转发，继续读完上游
+      });
+
+      upRes.on("data", (chunk: Buffer) => {
+        if (!clientGone) {
+          try {
+            res.write(chunk); // Node chunked 自动分帧
+          } catch {
+            clientGone = true;
+          }
+        }
+        extractor.push(chunk.toString("utf8"));
+      });
+
+      upRes.on("end", () => {
+        extractor.flush();
+        if (!clientGone) {
+          try {
+            res.end();
+          } catch {
+            /* ignore */
+          }
+        } else {
+          try {
+            res.end();
+          } catch {
+            /* ignore */
+          }
+        }
+        recordAndLog(jsonlPath, log, model, extractor.usage, true, status);
+        finish();
+      });
+
+      upRes.on("error", (e: Error) => {
+        extractor.flush();
+        recordAndLog(jsonlPath, log, model, extractor.usage, true, 0, String(e));
+        try {
+          if (!clientGone) res.end();
+        } catch {
+          /* ignore */
+        }
+        finish();
+      });
+    });
+
+    upstream.write(body);
+    upstream.end();
+  });
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {
