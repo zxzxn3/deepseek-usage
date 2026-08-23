@@ -5,6 +5,7 @@ import { TodayStats, ModelStats, beijingDayStartUtcMs } from "./stats";
 import { UsageRecord } from "./jsonl";
 import { costFromUsage, isPeakBeijing } from "./pricing";
 import { fmtNum } from "./server/termfmt";
+import { t } from "./i18n";
 
 export interface ModelRow {
   name: string;
@@ -50,23 +51,23 @@ function render(data: DetailData): string {
   const s = data.stats;
   const today = new Date(Date.now() + BEIJING_OFFSET_MS).toISOString().slice(0, 10);
   const peakBadge = data.peakNow
-    ? '<span class="badge peak">高峰 ×2</span>'
-    : '<span class="badge off">空闲</span>';
+    ? `<span class="badge peak">${t("peakBadge")}</span>`
+    : `<span class="badge off">${t("offpeakBadge")}</span>`;
 
   const card = (k: string, v: string) =>
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
   const summary =
-    card("费用", money(s.cost)) +
-    card("缓存费用", money(s.chCost)) +
-    card("总 token", fmtNum(s.t)) +
-    card("缓存 token", fmtNum(s.ch)) +
-    card("输入", fmtNum(s.p)) +
-    card("输出", fmtNum(s.c));
+    card(t("cost"), money(s.cost)) +
+    card(t("cacheCost"), money(s.chCost)) +
+    card(t("totalToken"), fmtNum(s.t)) +
+    card(t("cacheToken"), fmtNum(s.ch)) +
+    card(t("input"), fmtNum(s.p)) +
+    card(t("output"), fmtNum(s.c));
 
   const modelRows =
     data.models.length === 0
-      ? '<tr><td colspan="7" class="muted">今天还没有记录</td></tr>'
+      ? `<tr><td colspan="7" class="muted">${t("noRecordsToday")}</td></tr>`
       : data.models
           .slice()
           .sort((a, b) => b.m.cost - a.m.cost)
@@ -92,7 +93,7 @@ function render(data: DetailData): string {
     .reverse();
   const recentRows =
     recent.length === 0
-      ? '<tr><td colspan="7" class="muted">今天还没有经代理的请求</td></tr>'
+      ? `<tr><td colspan="7" class="muted">${t("noRequestsToday")}</td></tr>`
       : recent
           .map((r) => {
             const err = r.error
@@ -135,19 +136,19 @@ function render(data: DetailData): string {
 </style>
 </head>
 <body>
-  <h1>DeepSeek Usage · 今日明细（${today}） ${peakBadge}</h1>
+  <h1>${t("panelTitle")} <span class="muted">${today}</span> ${peakBadge}</h1>
   <div class="cards">${summary}</div>
-  <h2>按模型</h2>
+  <h2>${t("byModel")}</h2>
   <table>
-    <thead><tr><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">总/缓存</th><th class="num">费用</th><th class="num">缓存费用</th><th class="num">次数</th></tr></thead>
+    <thead><tr><th>${t("model")}</th><th class="num">${t("input")}</th><th class="num">${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("cost")}</th><th class="num">${t("cacheCost")}</th><th class="num">${t("count")}</th></tr></thead>
     <tbody>${modelRows}</tbody>
   </table>
-  <h2>最近请求</h2>
+  <h2>${t("recentRequests")}</h2>
   <table>
-    <thead><tr><th class="num">时间</th><th>模型</th><th class="num">输入/输出</th><th class="num">总/缓存</th><th class="num">费用</th><th class="num">状态</th><th>错误</th></tr></thead>
+    <thead><tr><th class="num">${t("time")}</th><th>${t("model")}</th><th class="num">${t("input")}/${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("cost")}</th><th class="num">${t("status")}</th><th>${t("error")}</th></tr></thead>
     <tbody>${recentRows}</tbody>
   </table>
-  <p class="muted">每 5 秒自动刷新 · 仅统计今天（北京时间）经代理的请求。</p>
+  <p class="muted">${t("autoRefreshNote")}</p>
   <script>
     const vscode = acquireVsCodeApi();
     setInterval(() => vscode.postMessage({ type: "refresh" }), 5000);
@@ -159,7 +160,7 @@ function render(data: DetailData): string {
 export function openDetailPanel(getData: () => DetailData): void {
   const panel = vscode.window.createWebviewPanel(
     "deepseekUsage.detail",
-    "DeepSeek Usage · 今日明细",
+    t("panelTitle"),
     vscode.ViewColumn.One,
     { enableScripts: true, retainContextWhenHidden: true },
   );

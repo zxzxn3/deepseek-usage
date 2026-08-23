@@ -25,14 +25,26 @@ function pad(s: string, width: number, align: "<" | ">" = "<"): string {
   return align === "<" ? s + " ".repeat(p) : " ".repeat(p) + s;
 }
 
-// 表头/分隔线与行共用同一套列宽，保证对齐
-export const HDR =
-  pad("时间", 10) +
-  pad("输入/输出", 13, ">") +
-  pad("token总/缓存", 16, ">") +
-  pad("费用总/缓存", 18, ">") +
-  pad("状态", 6, ">");
-export const SEP = "-".repeat(dispWidth(HDR));
+export type Lang = "en" | "zh-cn";
+
+/** 表头按语言生成；与行共用同一套列宽保证对齐。 */
+export function makeHdr(lang: Lang): string {
+  const [t, io, tc, cc, st] =
+    lang === "zh-cn"
+      ? ["时间", "输入/输出", "token总/缓存", "费用总/缓存", "状态"]
+      : ["Time", "In/Out", "Total/Cache", "Cost/Cache", "Status"];
+  return (
+    pad(t, 10) +
+    pad(io, 13, ">") +
+    pad(tc, 16, ">") +
+    pad(cc, 18, ">") +
+    pad(st, 6, ">")
+  );
+}
+
+export function makeSep(hdr: string): string {
+  return "-".repeat(dispWidth(hdr));
+}
 
 export interface FmtRowInput {
   model: string;

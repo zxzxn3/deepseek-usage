@@ -1,7 +1,7 @@
 {
   "name": "deepseek-usage",
   "displayName": "DeepSeek Usage",
-  "description": "本地代理拦截 DeepSeek 真实请求，状态栏实时显示今日费用与 token 用量（北京时间）。",
+  "description": "%description%",
   "version": "0.1.0",
   "publisher": "local",
   "private": true,
@@ -20,40 +20,46 @@
     "commands": [
       {
         "command": "deepseekUsage.showStats",
-        "title": "DeepSeek Usage: 今日明细"
+        "title": "%command.showStats%"
       },
       {
         "command": "deepseekUsage.startProxy",
-        "title": "DeepSeek Usage: 启动代理"
+        "title": "%command.startProxy%"
       },
       {
         "command": "deepseekUsage.stopProxy",
-        "title": "DeepSeek Usage: 停止代理"
+        "title": "%command.stopProxy%"
       }
     ],
     "configuration": {
-      "title": "DeepSeek Usage",
+      "title": "%config.title%",
       "properties": {
         "deepseekUsage.port": {
           "type": "number",
           "default": 8080,
-          "description": "本地代理监听端口。"
+          "description": "%config.port%"
         },
         "deepseekUsage.autoStart": {
           "type": "boolean",
           "default": false,
-          "description": "VS Code 启动时自动拉起代理（流式透传实现前先保持关闭，R1 后改回 true）。"
+          "description": "%config.autoStart%"
         },
         "deepseekUsage.manageBaseUrl": {
           "type": "boolean",
           "default": true,
-          "description": "代理运行时自动把 deepseek-copilot.baseUrl 指向本地代理，停止时恢复原值。"
+          "description": "%config.manageBaseUrl%"
         },
         "deepseekUsage.pollIntervalSeconds": {
           "type": "number",
           "default": 10,
           "minimum": 2,
-          "description": "状态栏刷新间隔（秒）。"
+          "description": "%config.pollIntervalSeconds%"
+        },
+        "deepseekUsage.language": {
+          "type": "string",
+          "enum": ["auto", "en", "zh-cn"],
+          "default": "auto",
+          "description": "%config.language%"
         }
       }
     }

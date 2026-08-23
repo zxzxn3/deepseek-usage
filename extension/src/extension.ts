@@ -17,6 +17,7 @@ import {
 } from "./stats";
 import { isPeakBeijing } from "./pricing";
 import { openDetailPanel } from "./detailPanel";
+import { t, lang } from "./i18n";
 
 let statusBar: vscode.StatusBarItem;
 let jsonlPath = "";
@@ -111,12 +112,12 @@ function renderStatusBar() {
       `${fmtTok(s.t)}/${fmtTok(s.ch)}`;
   }
   statusBar.tooltip = new vscode.MarkdownString(
-    `今天（北京时间）\n\n` +
-      `费用 ￥${s.cost.toFixed(4)} / 缓存命中 ￥${s.chCost.toFixed(4)}\n` +
-      `总token ${fmtTok(s.t)} / 缓存命中 ${fmtTok(s.ch)}\n` +
-      `输入 ${fmtTok(s.p)} / 输出 ${fmtTok(s.c)}\n\n` +
-      `代理：${running ? "运行中" : "未运行"}\n` +
-      `点此查看明细（占位）`,
+    `${t("todayBeijing")}\n\n` +
+      `${t("cost")} ￥${s.cost.toFixed(4)} / ${t("cacheHit")} ￥${s.chCost.toFixed(4)}\n` +
+      `${t("totalToken")} ${fmtTok(s.t)} / ${t("cacheHit")} ${fmtTok(s.ch)}\n` +
+      `${t("input")} ${fmtTok(s.p)} / ${t("output")} ${fmtTok(s.c)}\n\n` +
+      `${t("proxy")}: ${running ? t("proxyRunning") : t("proxyStopped")}\n` +
+      `${t("clickForDetails")}`,
   );
   statusBar.tooltip.supportHtml = false;
 }
@@ -138,7 +139,7 @@ function showStats() {
 
 async function startProxy(context: vscode.ExtensionContext) {
   if (proxyProc && !proxyProc.killed) {
-    void vscode.window.showInformationMessage("DeepSeek Usage 代理已在运行");
+    void vscode.window.showInformationMessage(t("proxyAlreadyRunning"));
     return;
   }
   const port = getCfg().get<number>("port", 8080);
@@ -146,27 +147,22 @@ async function startProxy(context: vscode.ExtensionContext) {
 
   // 端口探测：已被占用 → 复用现有服务（记日志，避免"看不见是谁在听"）
   if (await isPortInUse(port)) {
-    log.appendLine(
-      `[deepseek-usage] 端口 ${port} 已被占用，复用现有服务；` +
-        `若占用方不是本扩展代理，聊天不会落库、状态栏不会更新`,
-    );
-    void vscode.window.showWarningMessage(
-      `端口 ${port} 已被占用，直接复用现有服务（详见输出面板）`,
-    );
+    log.appendLine(`[deepseek-usage] ${t("portInUseLog", { port })}`);
+    void vscode.window.showWarningMessage(t("portInUseWarn", { port }));
   } else {
     const serverJs = path.join(context.extensionUri.fsPath, "out", "server.js");
     log.appendLine(
-      `[deepseek-usage] 启动代理 ${serverJs} --port ${port} --jsonl ${jsonlPath}`,
+      `[deepseek-usage] ${t("proxyStartLog", { serverJs, port, jsonl: jsonlPath })}`,
     );
     proxyProc = cp.spawn(
       process.execPath,
-      [serverJs, "--port", String(port), "--jsonl", jsonlPath],
+      [serverJs, "--port", String(port), "--jsonl", jsonlPath, "--lang", lang()],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     proxyProc.stdout?.on("data", (d) => log.append(d.toString()));
     proxyProc.stderr?.on("data", (d) => log.append(d.toString()));
     proxyProc.on("exit", (code) => {
-      log.appendLine(`[deepseek-usage] 代理进程退出 code=${code}`);
+      log.appendLine(`[deepseek-usage] ${t("proxyExitLog", { code: String(code) })}`);
       proxyProc = null;
       renderStatusBar();
     });
@@ -180,7 +176,7 @@ async function startProxy(context: vscode.ExtensionContext) {
 
 function getProxyLog(): vscode.OutputChannel {
   if (!proxyLog) {
-    proxyLog = vscode.window.createOutputChannel("DeepSeek Usage 代理");
+    proxyLog = vscode.window.createOutputChannel(t("outputChannelName"));
   }
   return proxyLog;
 }
@@ -191,7 +187,7 @@ function stopProxy() {
   }
   proxyProc = null;
   restoreBaseUrl();
-  getProxyLog().appendLine("[deepseek-usage] 已停止代理并恢复 baseUrl");
+  getProxyLog().appendLine(`[deepseek-usage] ${t("proxyStoppedLog")}`);
   renderStatusBar();
 }
 
