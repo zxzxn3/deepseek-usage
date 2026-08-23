@@ -13,5 +13,5 @@
   "config.pollIntervalSeconds": "状态栏刷新间隔（秒）。",
   "config.pricing": "按模型的定价覆盖（元/百万 token）：以模型名为键的对象，值 {cache_hit, cache_miss, output}，合并到默认价上。",
   "config.currency": "费用显示货币：cny（￥）或 usd（$）。",
-  "config.cnyPerUsd": "1 美元兑人民币汇率，currency 为 usd 时用于换算费用。"
+  "config.cnyPerUsd": "1 美元兑人民币汇率的兜底值（自动从公开 API 拉取失败时用）。"
 }

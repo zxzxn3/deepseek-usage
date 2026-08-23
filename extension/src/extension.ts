@@ -21,6 +21,7 @@ import {
   setPricingTable,
 } from "./pricing";
 import { Currency, fmtMoney, moneyPair } from "./currency";
+import { fetchCnyPerUsd, getLiveRate } from "./rate";
 import { openDetailPanel } from "./detailPanel";
 import { t } from "./i18n";
 
@@ -33,6 +34,7 @@ let timer: NodeJS.Timeout | null = null;
 let proxyProc: cp.ChildProcess | null = null;
 let originalBaseUrl: string | undefined;
 let proxyLog: vscode.OutputChannel | null = null;
+let rateTimer: NodeJS.Timeout | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   // 数据文件：扩展全局存储（用户级、跨工作区）
@@ -60,6 +62,8 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
   applyPricingConfig(); // 应用用户定价覆盖
+  void refreshRate(); // 启动即拉一次汇率（失败回退配置值）
+  rateTimer = setInterval(() => void refreshRate(), 6 * 3600 * 1000); // 每 6 小时刷新
   updateProxyContext(); // 初始化命令面板里"启动/停止"的显示状态
 
   poll(); // 立即刷一次
@@ -78,6 +82,13 @@ export function activate(context: vscode.ExtensionContext) {
         resetAggregation();
         poll();
       }
+      if (
+        e.affectsConfiguration("deepseekUsage.currency") ||
+        e.affectsConfiguration("deepseekUsage.cnyPerUsd")
+      ) {
+        renderStatusBar();
+        if (getCurrency() === "usd") void refreshRate();
+      }
     }),
   );
 
@@ -89,6 +100,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   if (timer) clearInterval(timer); // 停用即停止轮询
+  if (rateTimer) clearInterval(rateTimer); // 停用即停止汇率刷新
   stopProxy(); // 恢复 baseUrl
 }
 
@@ -106,7 +118,13 @@ function getCurrency(): Currency {
 }
 
 function getCnyPerUsd(): number {
-  return getCfg().get<number>("cnyPerUsd", 7.0);
+  return getLiveRate() ?? getCfg().get<number>("cnyPerUsd", 7.0);
+}
+
+/** 拉取实时汇率；成功后重渲染状态栏（金额可能变化）。 */
+async function refreshRate() {
+  const r = await fetchCnyPerUsd();
+  if (r !== null) renderStatusBar();
 }
 
 /** 应用用户定价覆盖到生效表。 */

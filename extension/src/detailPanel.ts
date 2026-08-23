@@ -10,6 +10,7 @@ import { modelPrice, costFromUsage, isPeakBeijing } from "./pricing";
 import { fmtNum } from "./server/termfmt";
 import { t } from "./i18n";
 import { Currency, fmtMoney } from "./currency";
+import { getLiveRate } from "./rate";
 
 export interface ModelRow {
   name: string;
@@ -33,9 +34,9 @@ function money(n: number): string {
   const cur = vscode.workspace
     .getConfiguration("deepseekUsage")
     .get<Currency>("currency", "cny");
-  const rate = vscode.workspace
-    .getConfiguration("deepseekUsage")
-    .get<number>("cnyPerUsd", 7.0);
+  const rate =
+    getLiveRate() ??
+    vscode.workspace.getConfiguration("deepseekUsage").get<number>("cnyPerUsd", 7.0);
   return fmtMoney(n, cur, rate);
 }
 
