@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""hud.py — 浮动 HUD：屏幕顶部居中，大号显示今天的用量。
+"""hud.py — 浮动 HUD：屏幕底部居中，大号显示今天的用量。
 
 读取同目录 usage.db，每 2 秒刷新两行（与 proxy 统计栏同口径：今天/本地时区）：
 - 大号：费用 总/缓存命中    ￥4.1963/2.3070
@@ -11,6 +11,8 @@
 依赖：仅标准库 tkinter（Windows 自带）+ termfmt/pricing。
 """
 
+import ctypes
+import ctypes.wintypes
 import os
 import sqlite3
 import sys
@@ -65,6 +67,15 @@ def _today_stats():
     return p, c, t, ch, cost, ch_cost
 
 
+def _work_area():
+    """Windows 工作区（排除任务栏），返回 (left, top, right, bottom)。"""
+    rect = ctypes.wintypes.RECT()
+    ctypes.windll.user32.SystemParametersInfoW(
+        0x0030, 0, ctypes.byref(rect), 0  # SPI_GETWORKAREA
+    )
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
 class Hud:
     def __init__(self):
         self.root = tk.Tk()
@@ -75,7 +86,7 @@ class Hud:
         self.root.attributes("-transparentcolor", BG)
         self.root.configure(bg=BG)
         self._make_ui()
-        self._place_top_center()
+        self._place_bottom_center()
         self._bind_drag()
 
     # ---------- UI ----------
@@ -100,11 +111,14 @@ class Hud:
         # 右键退出
         self.root.bind("<Button-3>", lambda e: self._quit())
 
-    def _place_top_center(self):
+    def _place_bottom_center(self):
         self.root.update_idletasks()
         w = self.root.winfo_reqwidth()
-        sw = self.root.winfo_screenwidth()
-        self.root.geometry(f"+{max(0, (sw - w) // 2 + 200)}+8")  # 顶部居中再右移 200px
+        h = self.root.winfo_reqheight()
+        left, _top, right, bottom = _work_area()
+        x = max(0, left + (right - left - w) // 2 + 600)  # 水平居中再右移 600px
+        y = bottom - h - 12  # 底部留 12px
+        self.root.geometry(f"+{x}+{y}")
 
     # ---------- 拖拽 ----------
     def _bind_drag(self):
