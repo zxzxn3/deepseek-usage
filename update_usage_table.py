@@ -126,24 +126,6 @@ def compute_cost(m, model, pricing="auto"):
     return nocache, allcache  # (最贵, 最便宜) 两个极端，真实值在中间
 
 
-def ensure_columns(con, decls):
-    """给已存在的表"补列"——数据库迁移（migration）。
-
-    问题：早期版本建表时还没有 model / 费用 / 工作区这几列，
-    如果直接沿用旧 usage_sessions.db，INSERT 会报"no such column"。
-    CREATE TABLE IF NOT EXISTS 只会在表不存在时建表，不会改旧表。
-
-    解决：用 PRAGMA table_info 查表当前有哪些列，
-    缺哪列就 ALTER TABLE ADD COLUMN 补哪列，让新代码能在旧库上跑。
-    """
-    existing = {
-        r[1] for r in con.execute("PRAGMA table_info(session_usage)")
-    }  # 现有列名集合
-    for name, decl in decls.items():
-        if name not in existing:  # 只补缺失的列，避免重复
-            con.execute(f"ALTER TABLE session_usage ADD COLUMN {name} {decl}")
-
-
 def measure_file(path, tok):
     """统计单个转录文件，返回 dict（含 peak_ratio = 高峰时段的 token 占比）。
 
@@ -202,8 +184,10 @@ def run_scan(args, compact=False):
     mode = "精确" if tok is not None else "估算"
 
     con = sqlite3.connect(args.db)
+    # 旧库直接重建：每次运行都从转录全量重算，旧行无保留价值，无需迁移
+    con.execute("DROP TABLE IF EXISTS session_usage")
     con.execute("""
-        CREATE TABLE IF NOT EXISTS session_usage(
+        CREATE TABLE session_usage(
             session_id   TEXT PRIMARY KEY,
             file         TEXT,
             workspace    TEXT,
@@ -214,18 +198,12 @@ def run_scan(args, compact=False):
             assistant_tok REAL,
             tool_tok     REAL,
             total_tok    REAL,
+            model        TEXT,
+            cost_nocache REAL,
+            cost_allcache REAL,
             measured_at  TEXT
         )
         """)
-    ensure_columns(
-        con,
-        {
-            "model": "TEXT",
-            "cost_nocache": "REAL",
-            "cost_allcache": "REAL",
-            "workspace": "TEXT",
-        },
-    )
 
     rows = []  # (工作区名, session_id, m)
     # 外层循环：每个工作区（已按 mtime 新→旧排好）
