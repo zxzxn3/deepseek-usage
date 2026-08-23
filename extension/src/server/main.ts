@@ -1,7 +1,7 @@
 // 代理子进程入口：node out/server.js --port 8080 --jsonl <path>
 // 由扩展 spawn；也可独立运行便于调试。
 import { startProxyServer } from "./proxyServer";
-import { makeHdr, makeSep, Lang } from "./termfmt";
+import { makeHdr, makeSep } from "./termfmt";
 
 function parseArgs(argv: string[]): Record<string, string | undefined> {
   const args: Record<string, string | undefined> = {};
@@ -9,7 +9,6 @@ function parseArgs(argv: string[]): Record<string, string | undefined> {
     const a = argv[i];
     if (a === "--port") args.port = argv[++i];
     else if (a === "--jsonl") args.jsonl = argv[++i];
-    else if (a === "--lang") args.lang = argv[++i];
   }
   return args;
 }
@@ -18,17 +17,13 @@ async function main() {
   const args = parseArgs(process.argv);
   const port = Number(args.port ?? 8080);
   const jsonl = args.jsonl ?? "";
-  const lang: Lang = args.lang === "zh-cn" ? "zh-cn" : "en";
   if (!jsonl) {
-    console.error(lang === "zh-cn" ? "缺少 --jsonl 路径" : "missing --jsonl path");
+    console.error("missing --jsonl path");
     process.exit(1);
   }
   const server = await startProxyServer({ port, jsonlPath: jsonl });
-  const hdr = makeHdr(lang);
-  console.log(
-    `${lang === "zh-cn" ? "proxy 已启动" : "proxy started"}: ` +
-      `http://127.0.0.1:${port}  jsonl=${jsonl}`,
-  );
+  const hdr = makeHdr();
+  console.log(`proxy started: http://127.0.0.1:${port}  jsonl=${jsonl}`);
   console.log(hdr);
   console.log(makeSep(hdr));
 

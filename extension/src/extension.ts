@@ -17,7 +17,7 @@ import {
 } from "./stats";
 import { isPeakBeijing } from "./pricing";
 import { openDetailPanel } from "./detailPanel";
-import { t, lang } from "./i18n";
+import { t } from "./i18n";
 
 let statusBar: vscode.StatusBarItem;
 let jsonlPath = "";
@@ -175,7 +175,7 @@ async function startProxy(context: vscode.ExtensionContext) {
     );
     proxyProc = cp.spawn(
       process.execPath,
-      [serverJs, "--port", String(port), "--jsonl", jsonlPath, "--lang", lang()],
+      [serverJs, "--port", String(port), "--jsonl", jsonlPath],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     proxyProc.stdout?.on("data", (d) => log.append(d.toString()));

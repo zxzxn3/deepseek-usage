@@ -54,12 +54,6 @@
           "default": 10,
           "minimum": 2,
           "description": "%config.pollIntervalSeconds%"
-        },
-        "deepseekUsage.language": {
-          "type": "string",
-          "enum": ["auto", "en", "zh-cn"],
-          "default": "auto",
-          "description": "%config.language%"
         }
       }
     }

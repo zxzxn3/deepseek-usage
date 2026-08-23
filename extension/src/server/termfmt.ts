@@ -25,13 +25,11 @@ function pad(s: string, width: number, align: "<" | ">" = "<"): string {
   return align === "<" ? s + " ".repeat(p) : " ".repeat(p) + s;
 }
 
-export type Lang = "en" | "zh-cn";
-
-/** 模型名简写：已知模型固定短名；其它去掉 deepseek-v4- 前缀并截断到 8 字符。 */
+/** 模型名简写：d4f / d4p / d4fv；未知去掉 deepseek-v4- 前缀并截断到 8 字符。 */
 const MODEL_SHORT: Record<string, string> = {
-  "deepseek-v4-flash": "flash",
-  "deepseek-v4-pro": "pro",
-  "deepseek-v4-flash-vision-exp": "flash-v",
+  "deepseek-v4-flash": "d4f",
+  "deepseek-v4-pro": "d4p",
+  "deepseek-v4-flash-vision-exp": "d4fv",
 };
 export function shortModel(model: string): string {
   const s =
@@ -40,19 +38,15 @@ export function shortModel(model: string): string {
   return s.length > 8 ? s.slice(0, 8) : s;
 }
 
-/** 表头按语言生成；与行共用同一套列宽保证对齐。 */
-export function makeHdr(lang: Lang): string {
-  const [t, m, io, tc, cc, st] =
-    lang === "zh-cn"
-      ? ["时间", "模型", "输入/输出", "token总/缓存", "费用总/缓存", "状态"]
-      : ["Time", "Model", "In/Out", "Total/Cache", "Cost/Cache", "Status"];
+/** 表头（英文为主）；与行共用同一套列宽保证对齐。 */
+export function makeHdr(): string {
   return (
-    pad(t, 10) +
-    pad(m, 8, ">") +
-    pad(io, 13, ">") +
-    pad(tc, 16, ">") +
-    pad(cc, 18, ">") +
-    pad(st, 6, ">")
+    pad("Time", 10) +
+    pad("Model", 6, ">") +
+    pad("In/Out", 13, ">") +
+    pad("Total/Cache", 16, ">") +
+    pad("Cost/Cache", 18, ">") +
+    pad("Status", 6, ">")
   );
 }
 
