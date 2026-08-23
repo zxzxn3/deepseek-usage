@@ -309,6 +309,7 @@ def cmd_check(args):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "DeepSeekUsageLogger/1.0"
+    protocol_version = "HTTP/1.1"  # 允许 chunked 流式（真流式透传需要）
 
     def log_message(self, fmt, *args):  # 静默默认日志，避免刷屏
         pass
@@ -328,6 +329,145 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.end_headers()
+
+    def _record(
+        self, model, pt, ct, tt, ch, cm, nmsg, ich, och, stream, status, error=None
+    ):
+        """落库 + 实时打印一行（非流式与流式共用）。"""
+        con = init_db()
+        insert_log(
+            con,
+            model=model,
+            pt=pt,
+            ct=ct,
+            tt=tt,
+            cache_hit=ch,
+            cache_miss=cm,
+            nmsg=nmsg,
+            ich=ich,
+            och=och,
+            stream=stream,
+            status=status,
+            error=error,
+        )
+        con.close()
+        _live_print(_fmt_usage(model, pt, ct, tt, ch, stream, status, error))
+
+    def _proxy_stream(self, auth, body, model, messages, input_chars):
+        """真流式透传：边从 DeepSeek 收 chunk 边转发给客户端，末尾抓 usage 落库。"""
+        payload = dict(body)
+        payload.setdefault("stream_options", {}).setdefault("include_usage", True)
+        req = urllib.request.Request(
+            API_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": auth, "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=args_timeout)
+        except urllib.error.HTTPError as e:
+            err = e.read()
+            ctype = e.headers.get("Content-Type", "application/json")
+            self._send(e.code, err, ctype=ctype)
+            self._record(
+                model,
+                None,
+                None,
+                None,
+                None,
+                None,
+                len(messages),
+                input_chars,
+                None,
+                True,
+                e.code,
+                err[:200].decode("utf-8", "replace"),
+            )
+            return
+        except Exception as e:
+            self._record(
+                model,
+                None,
+                None,
+                None,
+                None,
+                None,
+                len(messages),
+                input_chars,
+                None,
+                True,
+                0,
+                str(e),
+            )
+            self._send(500, json.dumps({"error": str(e)}).encode())
+            return
+
+        # 先发响应头（HTTP/1.1 + chunked 流式）
+        ctype = resp.headers.get("Content-Type", "text/event-stream")
+        self.send_response(resp.status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        # 边收边转；同时从 SSE 里抓最后一个 data: 的 usage（[DONE] 之前）
+        last_usage = {}
+        try:
+            while True:
+                block = resp.read(8192)
+                if not block:
+                    break
+                self.wfile.write(f"{len(block):X}\r\n".encode() + block + b"\r\n")
+                self.wfile.flush()
+                for line in block.decode("utf-8", "replace").splitlines():
+                    if line.startswith("data:"):
+                        p = line[5:].strip()
+                        if p and p != "[DONE]":
+                            try:
+                                last_usage = json.loads(p).get("usage") or {}
+                            except Exception:
+                                pass
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except Exception as e:
+            self._record(
+                model,
+                None,
+                None,
+                None,
+                None,
+                None,
+                len(messages),
+                input_chars,
+                None,
+                True,
+                0,
+                str(e),
+            )
+            try:
+                resp.close()
+            except Exception:
+                pass
+            return
+        try:
+            resp.close()
+        except Exception:
+            pass
+
+        pt, ct, tt, ch, cm = _usage_fields(last_usage)
+        self._record(
+            model,
+            pt,
+            ct,
+            tt,
+            ch,
+            cm,
+            len(messages),
+            input_chars,
+            None,
+            True,
+            resp.status,
+        )
 
     def do_POST(self):
         # 事件触发：只有客户端发来 /chat/completions 请求才干活
@@ -359,6 +499,11 @@ class Handler(BaseHTTPRequestHandler):
             except SystemExit as e:
                 self._send(500, json.dumps({"error": str(e)}).encode())
                 return
+
+        if stream:
+            # 真流式：边收边转发，避免"等全部生成完才出现"
+            self._proxy_stream(auth, body, model, messages, input_chars)
+            return
 
         try:
             status, _h, out = http_call(auth, body, stream=stream, timeout=args_timeout)
