@@ -1,4 +1,4 @@
-"""common/pricing.py — 官方定价表与费用计算（估算 / 精确 共用）。
+"""pricing.py — 官方定价表与费用计算（估算 / 精确 共用）。
 
 价格来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/（2026-08）
 - 高峰价 = 空闲价 × 2；高峰 = 北京时间周一~五 9:00-12:00、14:00-18:00。

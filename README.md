@@ -5,7 +5,8 @@
 
 ```
 token_usage/
-  common/     共用：官方定价表 + 费用计算
+  pricing.py  官方定价表 + 费用计算
+  termfmt.py  终端实时输出：表格行 / 底部统计栏渲染
   proxy.py    本地代理：转发请求 → 精确 usage → usage.db + 终端实时输出
   hud.py      浮动 HUD：永远置顶小窗实时显示用量
   usage.db    SQLite（自动生成）
@@ -69,9 +70,9 @@ $env:DEEPSEEK_API_KEY = "sk-..."          # 在终端设置，别发 AI
 - token 数缩写：`<1000` 原样、`<1M` 一位小数 k、以上两位小数 M。
 - 费用取 4 位小数；统计栏与各行相加的 ±0.1k 视觉差属正常（行各自舍入、统计栏对精确值只舍一次）。
 - 非 TTY（重定向/管道）时自动退化为纯追加，不打 ANSI。
-- 费用用 `common/pricing` 按空闲价计算；缓存命中率越高越省钱。
+- 费用用 `pricing` 按空闲价计算；缓存命中率越高越省钱。
 
-## common/pricing.py（共用）
+## pricing.py（共用）
 
 - `PRICING`：官方定价表（2026-08，含缓存命中/未命中/输出）
 - `cost_from_roles`：估算用（角色→输入/输出）

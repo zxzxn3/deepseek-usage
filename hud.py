@@ -20,7 +20,7 @@ import sys
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common.pricing import PRICING, DEFAULT_MODEL  # noqa: E402
+from pricing import PRICING, DEFAULT_MODEL  # noqa: E402
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage.db")
 POLL_MS = 2000  # 刷新间隔（毫秒）

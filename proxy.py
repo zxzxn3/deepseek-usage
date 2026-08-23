@@ -32,17 +32,16 @@ import os
 import re
 import sqlite3
 import sys
-import threading
-import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-# 允许直接运行：把 token_usage 根加入 sys.path 以导入 common.pricing
+# 允许直接运行：把 token_usage 根加入 sys.path 以导入 pricing / termfmt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common.pricing import PRICING, cost_from_usage  # noqa: E402
+from pricing import PRICING, cost_from_usage  # noqa: E402
+import termfmt  # noqa: E402
 
 API_URL = "https://api.deepseek.com/chat/completions"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -144,7 +143,7 @@ def insert_log(
     error=None,
 ):
     ts = now_iso()
-    # 费用：用共用定价（common/pricing）按真实 usage 算；token 缺失（如出错）时为 None
+    # 费用：用共用定价（pricing）按真实 usage 算；token 缺失（如出错）时为 None
     cost = (
         cost_from_usage(pt, ct, cache_hit, cache_miss, model=model)
         if all(v is not None for v in (pt, ct, cache_hit, cache_miss))
@@ -210,86 +209,7 @@ def _usage_fields(usage: dict):
     )
 
 
-_print_lock = threading.Lock()  # 多线程同时打印时不串行
-
-
-# --------------------------------------------------------------------------- #
-# 终端美化：显示宽度感知对齐 / k·M 缩写 / 模型截断 / 底部统计栏
-# --------------------------------------------------------------------------- #
-
-_status_enabled = False  # proxy 模式 + TTY 时开启底部统计栏；非 TTY 退化为纯追加
-
-
-def _disp_width(s: str) -> int:
-    """终端显示宽度：中日韩全角字符按 2 列计，保证含 ￥/中文时对齐。"""
-    return sum(2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1 for ch in s)
-
-
-def _pad(s: str, width: int, align: str = "<") -> str:
-    """按显示宽度补齐/截断；align '<' 左对齐，'>' 右对齐。"""
-    pad = width - _disp_width(s)
-    if pad <= 0:
-        return s
-    return s + " " * pad if align == "<" else " " * pad + s
-
-
-def _fmt_num(n) -> str:
-    """token 缩写：<1000 原样 → <1e6 一位小数 k → 否则两位小数 M。"""
-    if n is None:
-        return "—"
-    if n < 1000:
-        return str(n)
-    if n < 1_000_000:
-        return f"{n / 1000:.1f}k"
-    return f"{n / 1e6:.2f}M"
-
-
-# 表格列宽（含尾随空格作列间分隔）；表头与行共用同一套宽度保证对齐
-_HDR = (
-    _pad("时间", 10)
-    + _pad("输入/输出", 13, ">")
-    + _pad("token总/缓存", 16, ">")
-    + _pad("费用总/缓存", 18, ">")
-    + _pad("状态", 6, ">")
-)
-_SEP = "-" * _disp_width(_HDR)
-
-
-def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
-    """把一次请求的 usage + 费用 格式化成一行（模型启动时统一说明，行内省略）。
-
-    列：时间 | 输入/输出(p/c) | token总/缓存(t/cH) | 费用总/缓存 | 状态。
-    """
-    ts = datetime.now().strftime("%H:%M:%S")
-    p_s = _fmt_num(pt) if pt is not None else "—"
-    c_s = _fmt_num(ct) if ct is not None else "—"
-    t_s = _fmt_num(tt) if tt is not None else "—"
-    ch_s = _fmt_num(ch) if ch is not None else "—"
-    if error:
-        pc_col, tok_col, cost_col = "—", "—", "—"
-    else:
-        pc_col = f"{p_s}/{c_s}"
-        tok_col = f"{t_s}/{ch_s}"
-        if pt is not None and ct is not None and ch is not None and cm is not None:
-            cost = cost_from_usage(pt, ct, ch, cm, model=model)
-            pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
-            ch_cost = ch * pr["cache_hit"] / 1e6
-            cost_col = f"￥{cost:.4f}/{ch_cost:.4f}"
-        else:
-            cost_col = "—"
-    mode = "s" if stream else "o"
-    row = (
-        _pad(ts, 10)
-        + _pad(pc_col, 13, ">")
-        + _pad(tok_col, 16, ">")
-        + _pad(cost_col, 18, ">")
-        + _pad(f"{mode}{status}", 6, ">")
-    )
-    if error:
-        row += "  ✗ " + (error or "").splitlines()[0][:80]
-    return row
-
-
+# 终端输出格式化（表头/行/底部统计栏）见 termfmt.py；这里只保留 DB 相关的统计聚合
 def _today_stats():
     """今天（本地时区）的累计；费用用行内已存 cost 精确求和（落库未预先舍入）。"""
     con = init_db()
@@ -322,24 +242,9 @@ def _status_text() -> str:
     p, c, t, ch, cost, ch_cost = _today_stats()
     date = datetime.now().strftime("%Y-%m-%d")
     return (
-        f"{date}  {_fmt_num(p)}/{_fmt_num(c)}  "
-        f"{_fmt_num(t)}/{_fmt_num(ch)}  ￥{cost:.4f}/{ch_cost:.4f}"
+        f"{date}  {termfmt.fmt_num(p)}/{termfmt.fmt_num(c)}  "
+        f"{termfmt.fmt_num(t)}/{termfmt.fmt_num(ch)}  ￥{cost:.4f}/{ch_cost:.4f}"
     )
-
-
-def _emit_row(line: str) -> None:
-    """实时行 + 底部统计栏：整段在锁内完成，避免多线程打印交错。
-
-    关键：统计栏用 sys.stdout.write 且不加换行，让光标停在统计栏行内；
-    否则 print 的 \n 会把光标推到下方空行，下次 \r\x1b[K 清不掉旧统计栏。
-    """
-    with _print_lock:
-        if _status_enabled:
-            sys.stdout.write("\r\x1b[K")
-        print(line, flush=True)
-        if _status_enabled:
-            sys.stdout.write(_status_text())
-            sys.stdout.flush()
 
 
 # --------------------------------------------------------------------------- #
@@ -451,7 +356,10 @@ class Handler(BaseHTTPRequestHandler):
             error=error,
         )
         con.close()
-        _emit_row(_fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error))
+        termfmt.emit_row(
+            termfmt.fmt_row(model, pt, ct, tt, ch, cm, stream, status, error),
+            _status_text,
+        )
 
     def _proxy_stream(self, auth, body, model, messages, input_chars):
         """真流式透传：边从 DeepSeek 收 chunk 边转发给客户端，末尾抓 usage 落库。"""
@@ -651,8 +559,9 @@ class Handler(BaseHTTPRequestHandler):
                 error=str(e),
             )
             con.close()
-            _emit_row(
-                _fmt_usage(model, None, None, None, None, None, stream, 0, str(e))
+            termfmt.emit_row(
+                termfmt.fmt_row(model, None, None, None, None, None, stream, 0, str(e)),
+                _status_text,
             )
             self._send(500, json.dumps({"error": str(e)}).encode())
             return
@@ -697,7 +606,10 @@ class Handler(BaseHTTPRequestHandler):
             status=status,
         )
         con.close()
-        _emit_row(_fmt_usage(model, pt, ct, tt, ch, cm, stream, status))
+        termfmt.emit_row(
+            termfmt.fmt_row(model, pt, ct, tt, ch, cm, stream, status),
+            _status_text,
+        )
 
         # 转发给客户端
         ctype = _h.get("Content-Type", "application/json")
@@ -738,11 +650,10 @@ def cmd_proxy(args):
     print(f"  DB   : {DB_PATH}")
     print("Ctrl+C 停止。")
     # 终端美化：TTY 下打印表头 + 底部统计栏；被重定向（管道/文件）时退化为纯追加
-    global _status_enabled
-    _status_enabled = sys.stdout.isatty()
-    if _status_enabled:
-        print(_HDR)
-        print(_SEP)
+    termfmt.enable(sys.stdout.isatty())
+    if termfmt.is_enabled():
+        print(termfmt.HDR)
+        print(termfmt.SEP)
         sys.stdout.write(
             _status_text()
         )  # 不加换行：光标停在统计栏行内，下次才能清掉重写
@@ -750,7 +661,7 @@ def cmd_proxy(args):
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        if _status_enabled:
+        if termfmt.is_enabled():
             print()  # 换行到统计栏下方，保留最后的统计栏
         print("已停止。")
         srv.server_close()
