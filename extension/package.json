@@ -23,14 +23,24 @@
         "title": "%command.showStats%"
       },
       {
-        "command": "deepseekUsage.startProxy",
-        "title": "%command.startProxy%"
-      },
-      {
-        "command": "deepseekUsage.stopProxy",
-        "title": "%command.stopProxy%"
+        "command": "deepseekUsage.toggleProxy",
+        "title": "%command.toggleProxy%"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "deepseekUsage.toggleProxy",
+          "title": "%command.proxyStart%",
+          "when": "!deepseekUsage.proxyRunning"
+        },
+        {
+          "command": "deepseekUsage.toggleProxy",
+          "title": "%command.proxyStop%",
+          "when": "deepseekUsage.proxyRunning"
+        }
+      ]
+    },
     "configuration": {
       "title": "%config.title%",
       "properties": {

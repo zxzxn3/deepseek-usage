@@ -1,8 +1,9 @@
 {
   "description": "本地代理拦截 DeepSeek 真实请求，状态栏实时显示今日费用与 token 用量（北京时间）。",
   "command.showStats": "DeepSeek Usage: 今日明细",
-  "command.startProxy": "DeepSeek Usage: 启动代理",
-  "command.stopProxy": "DeepSeek Usage: 停止代理",
+  "command.toggleProxy": "DeepSeek Usage: 切换代理",
+  "command.proxyStart": "DeepSeek Usage: 启动代理",
+  "command.proxyStop": "DeepSeek Usage: 停止代理",
   "config.title": "DeepSeek Usage",
   "config.port": "本地代理监听端口。",
   "config.autoStart": "VS Code 启动时自动拉起代理。",

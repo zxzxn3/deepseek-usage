@@ -50,11 +50,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("deepseekUsage.showStats", () => showStats()),
-    vscode.commands.registerCommand("deepseekUsage.startProxy", () =>
-      startProxy(context),
+    vscode.commands.registerCommand("deepseekUsage.toggleProxy", () =>
+      toggleProxy(context),
     ),
-    vscode.commands.registerCommand("deepseekUsage.stopProxy", () => stopProxy()),
   );
+  updateProxyContext(); // 初始化命令面板里"启动/停止"的显示状态
 
   poll(); // 立即刷一次
   startPolling();
@@ -156,6 +156,24 @@ function showStats() {
   }));
 }
 
+/** 切换代理：运行中则停止，否则启动。 */
+function toggleProxy(context: vscode.ExtensionContext) {
+  if (proxyProc && !proxyProc.killed) {
+    stopProxy();
+  } else {
+    void startProxy(context);
+  }
+}
+
+/** 同步命令面板的 when 上下文（deepseekUsage.proxyRunning）。 */
+function updateProxyContext() {
+  void vscode.commands.executeCommand(
+    "setContext",
+    "deepseekUsage.proxyRunning",
+    proxyProc !== null && !proxyProc.killed,
+  );
+}
+
 async function startProxy(context: vscode.ExtensionContext) {
   if (proxyProc && !proxyProc.killed) {
     void vscode.window.showInformationMessage(t("proxyAlreadyRunning"));
@@ -183,6 +201,7 @@ async function startProxy(context: vscode.ExtensionContext) {
     proxyProc.on("exit", (code) => {
       log.appendLine(`[deepseek-usage] ${t("proxyExitLog", { code: String(code) })}`);
       proxyProc = null;
+      updateProxyContext();
       renderStatusBar();
     });
   }
@@ -190,6 +209,7 @@ async function startProxy(context: vscode.ExtensionContext) {
   if (getCfg().get<boolean>("manageBaseUrl", true)) {
     takeOverBaseUrl(port);
   }
+  updateProxyContext();
   renderStatusBar();
 }
 
@@ -207,6 +227,7 @@ function stopProxy() {
   proxyProc = null;
   restoreBaseUrl();
   getProxyLog().appendLine(`[deepseek-usage] ${t("proxyStoppedLog")}`);
+  updateProxyContext();
   renderStatusBar();
 }
 
