@@ -2,6 +2,7 @@
 // 由扩展 spawn；也可独立运行便于调试。
 import { startProxyServer } from "./proxyServer";
 import { makeHdr, makeSep } from "./termfmt";
+import { applyOverrides, setPricingTable } from "../pricing";
 
 function parseArgs(argv: string[]): Record<string, string | undefined> {
   const args: Record<string, string | undefined> = {};
@@ -9,6 +10,7 @@ function parseArgs(argv: string[]): Record<string, string | undefined> {
     const a = argv[i];
     if (a === "--port") args.port = argv[++i];
     else if (a === "--jsonl") args.jsonl = argv[++i];
+    else if (a === "--pricing") args.pricing = argv[++i];
   }
   return args;
 }
@@ -20,6 +22,13 @@ async function main() {
   if (!jsonl) {
     console.error("missing --jsonl path");
     process.exit(1);
+  }
+  if (args.pricing) {
+    try {
+      setPricingTable(applyOverrides(JSON.parse(args.pricing)));
+    } catch {
+      console.error("invalid --pricing JSON");
+    }
   }
   const server = await startProxyServer({ port, jsonlPath: jsonl });
   const hdr = makeHdr();

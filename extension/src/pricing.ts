@@ -16,6 +16,35 @@ export const PRICING: Record<string, ModelPrice> = {
 
 export const DEFAULT_MODEL = "deepseek-v4-flash";
 
+export type PriceOverrides = Record<string, Partial<ModelPrice>>;
+
+// 生效定价表：默认官方价 + 用户配置覆盖（扩展/代理启动时 setPricingTable 注入）
+let activeTable: Record<string, ModelPrice> = PRICING;
+
+/** 默认表合并用户覆盖，得到完整生效表。 */
+export function applyOverrides(
+  overrides?: PriceOverrides,
+): Record<string, ModelPrice> {
+  const t: Record<string, ModelPrice> = { ...PRICING };
+  for (const [m, o] of Object.entries(overrides ?? {})) {
+    t[m] = { ...(t[m] ?? t[DEFAULT_MODEL]), ...o };
+  }
+  return t;
+}
+
+export function setPricingTable(table: Record<string, ModelPrice>): void {
+  activeTable = table;
+}
+
+export function resetPricingTable(): void {
+  activeTable = PRICING;
+}
+
+/** 取某模型生效价（缺失回退默认模型）。 */
+export function modelPrice(model: string): ModelPrice {
+  return activeTable[model] ?? activeTable[DEFAULT_MODEL];
+}
+
 // 中国无夏令时，北京时间 = UTC+8 固定偏移
 const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
 
@@ -38,7 +67,7 @@ export function costFromUsage(
   model = DEFAULT_MODEL,
   peak = false,
 ): number {
-  const p = PRICING[model] ?? PRICING[DEFAULT_MODEL];
+  const p = modelPrice(model);
   const f = peak ? 2.0 : 1.0;
   return (
     (cacheMissTokens * p.cache_miss +

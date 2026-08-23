@@ -15,7 +15,12 @@ import {
   addModelRecord,
   beijingDayStartUtcMs,
 } from "./stats";
-import { isPeakBeijing } from "./pricing";
+import {
+  isPeakBeijing,
+  ModelPrice,
+  applyOverrides,
+  setPricingTable,
+} from "./pricing";
 import { openDetailPanel } from "./detailPanel";
 import { t } from "./i18n";
 
@@ -57,6 +62,7 @@ export function activate(context: vscode.ExtensionContext) {
       showStatusFormatMenu(),
     ),
   );
+  applyPricingConfig(); // 应用用户定价覆盖
   updateProxyContext(); // 初始化命令面板里"启动/停止"的显示状态
 
   poll(); // 立即刷一次
@@ -69,6 +75,11 @@ export function activate(context: vscode.ExtensionContext) {
       }
       if (e.affectsConfiguration("deepseekUsage.statusBarFormat")) {
         renderStatusBar();
+      }
+      if (e.affectsConfiguration("deepseekUsage.pricing")) {
+        applyPricingConfig();
+        resetAggregation();
+        poll();
       }
     }),
   );
@@ -93,6 +104,24 @@ function getStatusFormat(): StatusFormat {
   return getCfg().get<StatusFormat>("statusBarFormat", "full");
 }
 
+/** 应用用户定价覆盖到生效表。 */
+function applyPricingConfig() {
+  const overrides = getCfg().get<Record<string, Partial<ModelPrice>>>(
+    "pricing",
+    {},
+  );
+  setPricingTable(applyOverrides(overrides));
+}
+
+/** 回到文件头并清空聚合（日切换 / 定价变更后重算）。 */
+function resetAggregation() {
+  if (!tailReader) return;
+  tailReader.reset();
+  stats = newTodayStats();
+  modelStats = new Map();
+  recentRecs = [];
+}
+
 function pollIntervalMs(): number {
   const sec = getCfg().get<number>("pollIntervalSeconds", 10);
   return Math.max(2, sec) * 1000; // 下限 2s，与配置 minimum 一致
@@ -109,10 +138,7 @@ function poll() {
   const dayStart = beijingDayStartUtcMs(now);
   if (dayStart !== lastDayStart) {
     // 北京日切换：重建当天聚合（重扫文件）
-    tailReader.reset();
-    stats = newTodayStats();
-    modelStats = new Map();
-    recentRecs = [];
+    resetAggregation();
     lastDayStart = dayStart;
   }
   for (const rec of tailReader.readNew()) {
@@ -243,9 +269,18 @@ async function startProxy(context: vscode.ExtensionContext) {
     log.appendLine(
       `[deepseek-usage] ${t("proxyStartLog", { serverJs, port, jsonl: jsonlPath })}`,
     );
+    const pricingJson = JSON.stringify(getCfg().get<object>("pricing", {}));
     proxyProc = cp.spawn(
       process.execPath,
-      [serverJs, "--port", String(port), "--jsonl", jsonlPath],
+      [
+        serverJs,
+        "--port",
+        String(port),
+        "--jsonl",
+        jsonlPath,
+        "--pricing",
+        pricingJson,
+      ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     proxyProc.stdout?.on("data", (d) => log.append(d.toString()));

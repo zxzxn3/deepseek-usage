@@ -1,6 +1,6 @@
 // 今日（北京时间）统计聚合。JSONL 存原始事实，费用在此按峰值现算。
 import { UsageRecord } from "./jsonl";
-import { PRICING, DEFAULT_MODEL, costFromUsage, isPeakBeijing } from "./pricing";
+import { modelPrice, costFromUsage, isPeakBeijing } from "./pricing";
 
 export interface TodayStats {
   p: number;
@@ -48,7 +48,7 @@ function perRecordCosts(
   const cm = r.cache_miss_tokens ?? 0;
   const peak = isPeakBeijing(new Date(tsMs));
   const cost = costFromUsage(pt, ct, ch, cm, r.model, peak);
-  const pr = PRICING[r.model] ?? PRICING[DEFAULT_MODEL];
+  const pr = modelPrice(r.model);
   const chCost = (ch * pr.cache_hit) / 1e6 * (peak ? 2 : 1);
   return { pt, ct, tt, ch, cost, chCost };
 }
