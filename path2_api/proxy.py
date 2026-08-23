@@ -364,13 +364,18 @@ def _status_text() -> str:
 
 
 def _emit_row(line: str) -> None:
-    """实时行 + 底部统计栏：整段在锁内完成，避免多线程打印交错。"""
+    """实时行 + 底部统计栏：整段在锁内完成，避免多线程打印交错。
+
+    关键：统计栏用 sys.stdout.write 且不加换行，让光标停在统计栏行内；
+    否则 print 的 \n 会把光标推到下方空行，下次 \r\x1b[K 清不掉旧统计栏。
+    """
     with _print_lock:
         if _status_enabled:
             sys.stdout.write("\r\x1b[K")
         print(line, flush=True)
         if _status_enabled:
-            print(_status_text(), flush=True)
+            sys.stdout.write(_status_text())
+            sys.stdout.flush()
 
 
 # --------------------------------------------------------------------------- #
@@ -774,7 +779,10 @@ def cmd_proxy(args):
     if _status_enabled:
         print(_HDR)
         print(_SEP)
-        print(_status_text(), flush=True)
+        sys.stdout.write(
+            _status_text()
+        )  # 不加换行：光标停在统计栏行内，下次才能清掉重写
+        sys.stdout.flush()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
