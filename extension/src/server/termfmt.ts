@@ -51,7 +51,7 @@ export function makeHdr(): string {
   return (
     pad("Time", 10) +
     pad("Model", 6, ">") +
-    pad("In/Out", 13, ">") +
+    pad("Prompt/Comp", 13, ">") +
     pad("Total/Cache", 16, ">") +
     pad("Cost/Cache", 18, ">") +
     pad("Status", 6, ">")
