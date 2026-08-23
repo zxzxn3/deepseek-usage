@@ -2,8 +2,8 @@
 """hud.py — 浮动 HUD：屏幕底部居中，大号显示今天的用量。
 
 读取同目录 usage.db，每 2 秒刷新两行（与 proxy 统计栏同口径：今天/本地时区）：
-- 大号：费用 总/缓存命中    ￥4.1963/2.3070
-- 小号：token 总/缓存命中   46.33M/44.34M
+- 小号：token 总/缓存命中   46.33M/44.34M（上）
+- 大号：费用 总/缓存命中    ￥4.1963/2.3070（下）
 
 用法：python hud.py
 交互：按住数字拖拽移动；右键 → 退出
@@ -91,7 +91,7 @@ class Hud:
 
     # ---------- UI ----------
     def _make_ui(self):
-        # 大号：费用 总/缓存命中；小号：token 总/缓存命中（均居中）
+        # 小号：token 总/缓存命中（上）；大号：费用 总/缓存命中（下）
         self.cost_lbl = tk.Label(
             self.root,
             text="￥--/--",
@@ -106,8 +106,8 @@ class Hud:
             fg=DIM,
             font=("Consolas", 14),
         )
-        self.cost_lbl.pack(padx=18, pady=(10, 0))
-        self.tok_lbl.pack(padx=18, pady=(0, 10))
+        self.tok_lbl.pack(padx=18, pady=(10, 0))
+        self.cost_lbl.pack(padx=18, pady=(0, 10))
         # 右键退出
         self.root.bind("<Button-3>", lambda e: self._quit())
 
@@ -116,7 +116,7 @@ class Hud:
         w = self.root.winfo_reqwidth()
         h = self.root.winfo_reqheight()
         left, _top, right, bottom = _work_area()
-        x = max(0, left + (right - left - w) // 2 + 600)  # 水平居中再右移 600px
+        x = max(0, left + (right - left - w) // 2 - 100)  # 水平居中再右移 600px
         y = bottom - h - 12  # 底部留 12px
         self.root.geometry(f"+{x}+{y}")
 
