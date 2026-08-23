@@ -32,6 +32,7 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -214,6 +215,33 @@ def _usage_fields(usage: dict):
     )
 
 
+_print_lock = threading.Lock()  # 多线程同时打印时不串行
+
+
+def _live_print(line: str) -> None:
+    with _print_lock:
+        print(line, flush=True)
+
+
+def _fmt_usage(model, pt, ct, tt, ch, stream, status, error=None) -> str:
+    """把一次请求的 usage 格式化成一行实时日志。"""
+    ts = datetime.now().strftime("%H:%M:%S")
+    if error:
+        return f"[{ts}] {model} | 失败: {error} | status {status}"
+    parts = []
+    if pt is not None:
+        parts.append(f"p {pt:,}")
+    if ct is not None:
+        parts.append(f"c {ct:,}")
+    if tt is not None:
+        parts.append(f"total {tt:,}")
+    if ch is not None:
+        parts.append(f"cacheH {ch:,}")
+    tok = " ".join(parts) if parts else "(无 usage)"
+    mode = "流式" if stream else "一次"
+    return f"[{ts}] {model} | {tok} | {mode} | status {status}"
+
+
 # --------------------------------------------------------------------------- #
 # check：一次性验证 + 记录
 # --------------------------------------------------------------------------- #
@@ -352,6 +380,7 @@ class Handler(BaseHTTPRequestHandler):
                 error=str(e),
             )
             con.close()
+            _live_print(_fmt_usage(model, None, None, None, None, stream, 0, str(e)))
             self._send(500, json.dumps({"error": str(e)}).encode())
             return
 
@@ -395,6 +424,7 @@ class Handler(BaseHTTPRequestHandler):
             status=status,
         )
         con.close()
+        _live_print(_fmt_usage(model, pt, ct, tt, ch, stream, status))
 
         # 转发给客户端
         ctype = _h.get("Content-Type", "application/json")
