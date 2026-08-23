@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""path2/hud.py — 浮动 HUD：永远置顶小窗，实时显示 DeepSeek 用量。
+"""hud.py — 浮动 HUD：永远置顶小窗，实时显示 DeepSeek 用量。
 
 读取同目录 usage.db，每 2 秒刷新：
 - 最近一次请求：p/c/t/cH + 费用
@@ -19,7 +19,7 @@ import sqlite3
 import sys
 import tkinter as tk
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common.pricing import PRICING, DEFAULT_MODEL  # noqa: E402
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage.db")

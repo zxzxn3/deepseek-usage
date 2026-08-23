@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""path2/proxy.py — 路2（精确）：拦截真实请求，把响应里的 usage 存进 usage.db。
+"""proxy.py — 精确：拦截真实请求，把响应里的 usage 存进 usage.db。
 
 DeepSeek 的 API 是 OpenAI 兼容的：每次响应都带 usage 对象（prompt_tokens /
 completion_tokens / total_tokens，以及缓存相关的 prompt_cache_hit_tokens /
@@ -41,15 +41,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 # 允许直接运行：把 token_usage 根加入 sys.path 以导入 common.pricing
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common.pricing import PRICING, cost_from_usage  # noqa: E402
 
 API_URL = "https://api.deepseek.com/chat/completions"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DEEPSEEK_USAGE_DB", os.path.join(BASE_DIR, "usage.db"))
-JSONL_PATH = os.environ.get(
-    "DEEPSEEK_USAGE_JSONL", os.path.join(BASE_DIR, "usage.jsonl")
-)
 DEFAULT_MODEL = "deepseek-v4-flash"
 # 流式空闲超时（秒）：等下一个字节最多等多久；长停顿的 agent/推理流用更大值
 STREAM_IDLE_TIMEOUT = 600
@@ -175,29 +172,6 @@ def insert_log(
         ),
     )
     con.commit()
-    with open(JSONL_PATH, "a", encoding="utf-8") as f:
-        f.write(
-            json.dumps(
-                {
-                    "ts": ts,
-                    "model": model,
-                    "prompt_tokens": pt,
-                    "completion_tokens": ct,
-                    "total_tokens": tt,
-                    "cache_hit_tokens": cache_hit,
-                    "cache_miss_tokens": cache_miss,
-                    "n_messages": nmsg,
-                    "input_chars": ich,
-                    "output_chars": och,
-                    "stream": bool(stream),
-                    "status": status,
-                    "error": error,
-                    "cost": cost,
-                },
-                ensure_ascii=False,
-            )
-            + "\n"
-        )
 
 
 def http_call(authorization: str, body: dict, stream: bool = False, timeout: int = 120):
@@ -762,7 +736,6 @@ def cmd_proxy(args):
     print("把任何 OpenAI 兼容客户端的 base_url 指向这里，每次请求的 usage 都会记录到")
     print(f" 模型  : 透传客户端请求（默认 {DEFAULT_MODEL}）")
     print(f"  DB   : {DB_PATH}")
-    print(f"  JSONL: {JSONL_PATH}")
     print("Ctrl+C 停止。")
     # 终端美化：TTY 下打印表头 + 底部统计栏；被重定向（管道/文件）时退化为纯追加
     global _status_enabled
@@ -778,7 +751,7 @@ def cmd_proxy(args):
         srv.serve_forever()
     except KeyboardInterrupt:
         if _status_enabled:
-            sys.stdout.write("\r\x1b[K")
+            print()  # 换行到统计栏下方，保留最后的统计栏
         print("已停止。")
         srv.server_close()
 
@@ -814,7 +787,7 @@ def cmd_list(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="路2（精确）：拦截请求，把响应里的 usage 存进 usage.db"
+        description="精确：拦截请求，把响应里的 usage 存进 usage.db"
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
