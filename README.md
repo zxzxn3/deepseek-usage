@@ -62,6 +62,25 @@ $env:DEEPSEEK_API_KEY = "sk-..."          # 在终端设置，别发 AI
 "deepseek-copilot.baseUrl": "http://127.0.0.1:8080"
 ```
 
+### 实时行格式（代理终端）
+
+每记录一次请求，代理终端打印一行：
+
+```
+[HH:MM:SS] model | p 输入 c 输出 t 总token(￥总费用) cH 缓存命中(￥命中费用) | stream/once | s 状态码
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `p` | prompt tokens（输入：你的话 + 系统提示 + 工具结果 + 历史上下文） |
+| `c` | completion tokens（输出：模型回复） |
+| `t` | total（p+c），括号 = 本次请求总费用（元） |
+| `cH` | 缓存命中 token，括号 = 命中部分费用（元） |
+| `stream` / `once` | 流式 / 非流式 |
+| `s` | HTTP 状态码 |
+
+费用用 `common/pricing` 按空闲价计算；缓存命中率越高越省钱。
+
 ## common/pricing.py（共用）
 
 - `PRICING`：官方定价表（2026-08，含缓存命中/未命中/输出）

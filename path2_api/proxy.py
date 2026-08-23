@@ -50,6 +50,8 @@ JSONL_PATH = os.environ.get(
     "DEEPSEEK_USAGE_JSONL", os.path.join(BASE_DIR, "usage.jsonl")
 )
 DEFAULT_MODEL = "deepseek-v4-flash"
+# 流式空闲超时（秒）：等下一个字节最多等多久；长停顿的 agent/推理流用更大值
+STREAM_IDLE_TIMEOUT = 600
 
 
 # --------------------------------------------------------------------------- #
@@ -99,6 +101,7 @@ def warn_token_format(token: str, where: str = "key") -> None:
 
 def init_db() -> sqlite3.Connection:
     con = sqlite3.connect(DB_PATH)
+    con.execute("PRAGMA journal_mode=WAL")  # WAL：降低多线程并发写锁冲突
     con.execute("""
         CREATE TABLE IF NOT EXISTS usage_log(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -391,7 +394,8 @@ class Handler(BaseHTTPRequestHandler):
             method="POST",
         )
         try:
-            resp = urllib.request.urlopen(req, timeout=args_timeout)
+            # 流式用更大的空闲超时（长停顿不误杀）；非流式才用 args_timeout
+            resp = urllib.request.urlopen(req, timeout=STREAM_IDLE_TIMEOUT)
         except urllib.error.HTTPError as e:
             err = e.read()
             ctype = e.headers.get("Content-Type", "application/json")
@@ -438,15 +442,29 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         # 边收边转；同时从 SSE 里抓最后一个 data: 的 usage（[DONE] 之前）
+        # #2：跨块缓存不完整行，避免长 data 行被 8KB 块切断
+        # #1：客户端断开时停止转发，但仍读完 DeepSeek 响应以抓 usage（被中断的生成照样计费）
         last_usage = {}
+        buf = ""
+        client_gone = False
         try:
             while True:
                 block = resp.read(8192)
                 if not block:
                     break
-                self.wfile.write(f"{len(block):X}\r\n".encode() + block + b"\r\n")
-                self.wfile.flush()
-                for line in block.decode("utf-8", "replace").splitlines():
+                if not client_gone:
+                    try:
+                        self.wfile.write(
+                            f"{len(block):X}\r\n".encode() + block + b"\r\n"
+                        )
+                        self.wfile.flush()
+                    except Exception:
+                        client_gone = True  # 客户端断开：停止转发，继续读完抓 usage
+                buf += block.decode("utf-8", "replace")
+                lines = buf.split("\n")
+                buf = lines.pop()  # 最后一段可能不完整，留到下一块
+                for line in lines:
+                    line = line.strip("\r")
                     if line.startswith("data:"):
                         p = line[5:].strip()
                         if p and p != "[DONE]":
@@ -454,9 +472,20 @@ class Handler(BaseHTTPRequestHandler):
                                 last_usage = json.loads(p).get("usage") or {}
                             except Exception:
                                 pass
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            if buf:  # 处理流末尾残留的未换行片段
+                line = buf.strip("\r")
+                if line.startswith("data:"):
+                    p = line[5:].strip()
+                    if p and p != "[DONE]":
+                        try:
+                            last_usage = json.loads(p).get("usage") or {}
+                        except Exception:
+                            pass
+            if not client_gone:
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
         except Exception as e:
+            # 读取阶段异常（网络错误/超时），非客户端断开
             self._record(
                 model,
                 None,
@@ -626,7 +655,13 @@ def cmd_proxy(args):
             "（扩展透传场景适用）"
         )
     init_db()
-    srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    except OSError as e:
+        sys.exit(
+            f"无法启动代理：端口 {args.port} 可能被占用（{e}）。"
+            "请换端口（--port）或先停掉占用者。"
+        )
     print(f"本地代理已启动: http://127.0.0.1:{args.port}/v1/chat/completions")
     print("把任何 OpenAI 兼容客户端的 base_url 指向这里，每次请求的 usage 都会记录到")
     print(f"  DB   : {DB_PATH}")
