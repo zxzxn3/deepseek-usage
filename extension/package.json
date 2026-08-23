@@ -12,6 +12,9 @@
   "categories": [
     "Other"
   ],
+  "extensionDependencies": [
+    "Vizards.deepseek-v4-for-copilot"
+  ],
   "main": "./out/extension.js",
   "activationEvents": [
     "onStartupFinished"
