@@ -67,8 +67,8 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // R6：自动起代理；流式实现前 autoStart 默认 false
-  if (getCfg().get<boolean>("autoStart", false)) {
+  // R6：自动起代理（流式已实现并验证，默认开启）
+  if (getCfg().get<boolean>("autoStart", true)) {
     void startProxy(context);
   }
 }

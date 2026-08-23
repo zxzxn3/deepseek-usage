@@ -41,7 +41,7 @@
         },
         "deepseekUsage.autoStart": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%config.autoStart%"
         },
         "deepseekUsage.manageBaseUrl": {
