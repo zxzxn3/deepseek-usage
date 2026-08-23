@@ -274,38 +274,41 @@ def _fmt_num(n) -> str:
 _HDR = (
     _pad("时间", 10)
     + _pad("输入/输出", 13, ">")
-    + _pad("总token(费用)", 18, ">")
-    + _pad("缓存命中(费用)", 20, ">")
+    + _pad("token总/缓存", 16, ">")
+    + _pad("费用总/缓存", 18, ">")
     + _pad("状态", 6, ">")
 )
 _SEP = "-" * _disp_width(_HDR)
 
 
 def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
-    """把一次请求的 usage + 费用 格式化成一行（模型启动时统一说明，行内省略）。"""
+    """把一次请求的 usage + 费用 格式化成一行（模型启动时统一说明，行内省略）。
+
+    列：时间 | 输入/输出(p/c) | token总/缓存(t/cH) | 费用总/缓存 | 状态。
+    """
     ts = datetime.now().strftime("%H:%M:%S")
     p_s = _fmt_num(pt) if pt is not None else "—"
     c_s = _fmt_num(ct) if ct is not None else "—"
     t_s = _fmt_num(tt) if tt is not None else "—"
     ch_s = _fmt_num(ch) if ch is not None else "—"
     if error:
-        pc_col, t_col, ch_col = "—", "—", "—"
+        pc_col, tok_col, cost_col = "—", "—", "—"
     else:
         pc_col = f"{p_s}/{c_s}"
-        cost = (
-            cost_from_usage(pt, ct, ch, cm, model=model)
-            if None not in (pt, ct, ch, cm)
-            else None
-        )
-        t_col = t_s + ("" if cost is None else f"(￥{cost:.4f})")
-        pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
-        ch_col = f"cH {ch_s}" + ("" if ch is None else f"(￥{ch * pr['cache_hit'] / 1e6:.4f})")
+        tok_col = f"{t_s}/{ch_s}"
+        if pt is not None and ct is not None and ch is not None and cm is not None:
+            cost = cost_from_usage(pt, ct, ch, cm, model=model)
+            pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
+            ch_cost = ch * pr["cache_hit"] / 1e6
+            cost_col = f"￥{cost:.4f}/{ch_cost:.4f}"
+        else:
+            cost_col = "—"
     mode = "s" if stream else "o"
     row = (
         _pad(ts, 10)
         + _pad(pc_col, 13, ">")
-        + _pad(t_col, 18, ">")
-        + _pad(ch_col, 20, ">")
+        + _pad(tok_col, 16, ">")
+        + _pad(cost_col, 18, ">")
         + _pad(f"{mode}{status}", 6, ">")
     )
     if error:
@@ -341,12 +344,13 @@ def _today_stats():
 
 
 def _status_text() -> str:
-    """底部统计栏：日期 + 今天的 p/c/t(￥)/cH(￥)。"""
+    """底部统计栏：日期 + 今天累计，与行格式一致（输入/输出、token总/缓存、费用总/缓存）。"""
     p, c, t, ch, cost, ch_cost = _today_stats()
     date = datetime.now().strftime("%Y-%m-%d")
     return (
-        f"{date} | p {_fmt_num(p)} c {_fmt_num(c)} t {_fmt_num(t)}(￥{cost:.4f})"
-        f" cH {_fmt_num(ch)}(￥{ch_cost:.4f})"
+        f"{date} | 输入/输出 {_fmt_num(p)}/{_fmt_num(c)}"
+        f" token总/缓存 {_fmt_num(t)}/{_fmt_num(ch)}"
+        f" 费用 ￥{cost:.4f}/{ch_cost:.4f}"
     )
 
 
