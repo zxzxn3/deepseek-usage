@@ -258,14 +258,14 @@ def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
             else None
         )
         cstr = "" if cost is None else f"￥{cost:.4f}"
-        parts.append(f"total {tt:,}({cstr})")
+        parts.append(f"t {tt:,}({cstr})")
     if ch is not None:
         # 缓存命中部分的费用 = 命中 token × 命中单价
         p = PRICING.get(model, PRICING[DEFAULT_MODEL])
         hit_cost = ch * p["cache_hit"] / 1e6
         parts.append(f"cH {ch:,}(￥{hit_cost:.4f})")
     tok = " ".join(parts) if parts else "(无 usage)"
-    mode = "流式" if stream else "一次"
+    mode = "stream" if stream else "once"
     return f"[{ts}] {model} | {tok} | {mode} | s {status}"
 
 
