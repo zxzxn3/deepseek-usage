@@ -240,13 +240,15 @@ def _today_stats():
 
 
 def _status_text() -> str:
-    """底部统计栏：日期 + 今天累计，与实时行同格式（纯数值对，无标签）。"""
+    """底部统计栏：日期 + 今天累计 + 当前计价模式（高峰/空闲，按北京时间）。"""
     p, c, t, ch, cost, ch_cost = _today_stats()
     date = datetime.now().strftime("%Y-%m-%d")
     money_s = termfmt.money(f"￥{cost:.4f}/{ch_cost:.4f}")
+    peak = is_peak_bt(datetime.now(timezone.utc))
     return (
         f"{date}  {termfmt.fmt_num(p)}/{termfmt.fmt_num(c)}  "
-        f"{termfmt.fmt_num(t)}/{termfmt.fmt_num(ch)}  {money_s}"
+        f"{termfmt.fmt_num(t)}/{termfmt.fmt_num(ch)}  {money_s}  "
+        f"{termfmt.peak_badge(peak)}"
     )
 
 

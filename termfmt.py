@@ -99,6 +99,11 @@ def money(s: str) -> str:
     return _c(_YELLOW, s)
 
 
+def peak_badge(peak: bool) -> str:
+    """计价模式标记：高峰(×2) 红 / 空闲 绿。"""
+    return _c(_RED, "[高峰 ×2]") if peak else _c(_GREEN, "[空闲]")
+
+
 def fmt_row(
     model, pt, ct, tt, ch, cm, stream, status, error=None, ts=None, peak=None
 ) -> str:
