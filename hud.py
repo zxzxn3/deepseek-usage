@@ -20,7 +20,7 @@ import tkinter as tk
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pricing import PRICING, DEFAULT_MODEL  # noqa: E402
+from pricing import PRICING, DEFAULT_MODEL, is_peak_bt  # noqa: E402
 from termfmt import fmt_num  # noqa: E402
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage.db")
@@ -47,7 +47,7 @@ def _today_stats():
     end = start + timedelta(days=1)
     rows = con.execute(
         "SELECT model,prompt_tokens,completion_tokens,total_tokens,"
-        "cache_hit_tokens,cost FROM usage_log WHERE ts>=? AND ts<?",
+        "cache_hit_tokens,cost,ts FROM usage_log WHERE ts>=? AND ts<?",
         (
             start.astimezone(timezone.utc).isoformat(timespec="seconds"),
             end.astimezone(timezone.utc).isoformat(timespec="seconds"),
@@ -56,14 +56,15 @@ def _today_stats():
     con.close()
     p = c = t = ch = 0
     cost = ch_cost = 0.0
-    for model, pt, ct, tt, chh, row_cost in rows:
+    for model, pt, ct, tt, chh, row_cost, rts in rows:
         p += pt or 0
         c += ct or 0
         t += tt or 0
         ch += chh or 0
         cost += row_cost or 0  # NULL（错误/老记录）按 0 兜底
         pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
-        ch_cost += (chh or 0) * pr["cache_hit"] / 1e6
+        peak = is_peak_bt(rts)
+        ch_cost += (chh or 0) * pr["cache_hit"] / 1e6 * (2.0 if peak else 1.0)
     return p, c, t, ch, cost, ch_cost
 
 

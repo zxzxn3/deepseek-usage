@@ -11,9 +11,9 @@
 import sys
 import threading
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 
-from pricing import PRICING, DEFAULT_MODEL, cost_from_usage
+from pricing import PRICING, DEFAULT_MODEL, cost_from_usage, is_peak_bt
 
 _status_enabled = False  # TTY 时开启底部统计栏；非 TTY 退化为纯追加
 _color_enabled = False  # TTY 时给状态码/费用/错误上色；非 TTY 保持纯文本
@@ -99,15 +99,20 @@ def money(s: str) -> str:
     return _c(_YELLOW, s)
 
 
-def fmt_row(model, pt, ct, tt, ch, cm, stream, status, error=None, ts=None) -> str:
+def fmt_row(
+    model, pt, ct, tt, ch, cm, stream, status, error=None, ts=None, peak=None
+) -> str:
     """把一次请求的 usage + 费用 格式化成一行（模型启动时统一说明，行内省略）。
 
     列：时间 | 输入/输出(p/c) | token总/缓存(t/cH) | 费用总/缓存 | 状态。
     ts：可选，覆盖当前时间（供 cmd_list 显示历史记录）；默认取现在。
+    peak：可选，是否高峰价；缺省按当前时间（北京时间）判断。
     颜色（TTY 时）：状态码 2xx 绿 / 4xx·5xx·0 红，费用黄，错误红。
     """
     if ts is None:
         ts = datetime.now().strftime("%H:%M:%S")
+    if peak is None:
+        peak = is_peak_bt(datetime.now(timezone.utc))
     p_s = fmt_num(pt) if pt is not None else "—"
     c_s = fmt_num(ct) if ct is not None else "—"
     t_s = fmt_num(tt) if tt is not None else "—"
@@ -118,9 +123,9 @@ def fmt_row(model, pt, ct, tt, ch, cm, stream, status, error=None, ts=None) -> s
         pc_col = f"{p_s}/{c_s}"
         tok_col = f"{t_s}/{ch_s}"
         if pt is not None and ct is not None and ch is not None and cm is not None:
-            cost = cost_from_usage(pt, ct, ch, cm, model=model)
+            cost = cost_from_usage(pt, ct, ch, cm, model=model, peak=peak)
             pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
-            ch_cost = ch * pr["cache_hit"] / 1e6
+            ch_cost = ch * pr["cache_hit"] / 1e6 * (2.0 if peak else 1.0)
             cost_col = f"￥{cost:.4f}/{ch_cost:.4f}"
             cost_color = _YELLOW
         else:
