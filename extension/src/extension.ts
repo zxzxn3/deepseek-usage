@@ -88,7 +88,7 @@ function getCfg(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("deepseekUsage");
 }
 
-type StatusFormat = "full" | "cost" | "tokens";
+type StatusFormat = "full" | "cost" | "tokens" | "totalT" | "totalCost";
 function getStatusFormat(): StatusFormat {
   return getCfg().get<StatusFormat>("statusBarFormat", "full");
 }
@@ -140,12 +140,17 @@ function renderStatusBar() {
   } else {
     const costText = `￥${s.cost.toFixed(4)}/${s.chCost.toFixed(4)}`;
     const tokText = `${fmtTok(s.t)}/${fmtTok(s.ch)}`;
-    statusBar.text =
-      fmt === "cost"
-        ? `$(credit-card) ${costText}`
-        : fmt === "tokens"
-          ? `$(credit-card) ${tokText}`
-          : `$(credit-card) ${costText}  ${tokText}`;
+    if (fmt === "cost") {
+      statusBar.text = `$(credit-card) ${costText}`;
+    } else if (fmt === "tokens") {
+      statusBar.text = `$(credit-card) ${tokText}`;
+    } else if (fmt === "totalT") {
+      statusBar.text = `$(credit-card) ${fmtTok(s.t)}`;
+    } else if (fmt === "totalCost") {
+      statusBar.text = `$(credit-card) ￥${s.cost.toFixed(4)}`;
+    } else {
+      statusBar.text = `$(credit-card) ${costText}  ${tokText}`;
+    }
   }
   statusBar.tooltip = new vscode.MarkdownString(
     `${t("todayBeijing")}\n\n` +
@@ -181,6 +186,8 @@ async function showStatusFormatMenu() {
     { id: "full", label: `${check("full")}${t("statusFormatFull")}`, desc: "￥cost/chCost  totalT/cacheT" },
     { id: "cost", label: `${check("cost")}${t("statusFormatCost")}`, desc: "￥cost/chCost" },
     { id: "tokens", label: `${check("tokens")}${t("statusFormatTokens")}`, desc: "totalT/cacheT" },
+    { id: "totalT", label: `${check("totalT")}${t("statusFormatTotalT")}`, desc: "totalT" },
+    { id: "totalCost", label: `${check("totalCost")}${t("statusFormatTotalCost")}`, desc: "￥cost" },
     { id: "details", label: `$(list-unordered) ${t("openDetails")}`, desc: "" },
   ];
   const picked = await vscode.window.showQuickPick(

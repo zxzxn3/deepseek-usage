@@ -58,6 +58,8 @@ const dict: Record<string, { en: string; zh: string }> = {
   statusFormatFull: { en: "Full · cost + tokens", zh: "完整 · 费用 + token" },
   statusFormatCost: { en: "Cost only", zh: "仅费用" },
   statusFormatTokens: { en: "Tokens only", zh: "仅 token" },
+  statusFormatTotalT: { en: "Total tokens (no cache)", zh: "总token（不含缓存）" },
+  statusFormatTotalCost: { en: "Total cost (no cache)", zh: "总cost（不含缓存）" },
   openDetails: { en: "Open today's details", zh: "查看今日明细" },
 };
 

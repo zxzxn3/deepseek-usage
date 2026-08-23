@@ -77,7 +77,7 @@
         },
         "deepseekUsage.statusBarFormat": {
           "type": "string",
-          "enum": ["full", "cost", "tokens"],
+          "enum": ["full", "cost", "tokens", "totalT", "totalCost"],
           "default": "full",
           "description": "%config.statusBarFormat%"
         }

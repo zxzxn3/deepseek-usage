@@ -5,7 +5,7 @@
   "command.proxyStart": "DeepSeek Usage: Start Proxy",
   "command.proxyStop": "DeepSeek Usage: Stop Proxy",
   "command.statusBarFormat": "DeepSeek Usage: Status Bar Format",
-  "config.statusBarFormat": "Status bar display format: full (cost + tokens), cost, or tokens.",
+  "config.statusBarFormat": "Status bar display format: full (cost + tokens), cost, tokens, totalT (total tokens only), or totalCost (total cost only).",
   "config.title": "DeepSeek Usage",
   "config.port": "Local proxy listen port.",
   "config.autoStart": "Automatically start the proxy when VS Code launches.",
