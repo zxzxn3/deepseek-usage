@@ -5,8 +5,18 @@ import * as cp from "child_process";
 import * as net from "net";
 import * as path from "path";
 import * as fs from "fs";
-import { TailReader } from "./jsonl";
-import { TodayStats, newTodayStats, addRecord, beijingDayStartUtcMs } from "./stats";
+import { TailReader, UsageRecord } from "./jsonl";
+import {
+  TodayStats,
+  ModelStats,
+  newTodayStats,
+  newModelStats,
+  addRecord,
+  addModelRecord,
+  beijingDayStartUtcMs,
+} from "./stats";
+import { isPeakBeijing } from "./pricing";
+import { openDetailPanel } from "./detailPanel";
 
 let statusBar: vscode.StatusBarItem;
 let jsonlPath = "";
@@ -17,6 +27,9 @@ let timer: NodeJS.Timeout | null = null;
 let proxyProc: cp.ChildProcess | null = null;
 let originalBaseUrl: string | undefined;
 let proxyLog: vscode.OutputChannel | null = null;
+let modelStats = new Map<string, ModelStats>(); // 按模型今日统计（明细面板用）
+let recentRecs: UsageRecord[] = []; // 最近请求环形缓冲（明细面板用）
+const RECENT_CAP = 60;
 
 export function activate(context: vscode.ExtensionContext) {
   // 数据文件：扩展全局存储（用户级、跨工作区）
@@ -35,7 +48,6 @@ export function activate(context: vscode.ExtensionContext) {
   statusBar.show();
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("deepseekUsage.refresh", () => poll()),
     vscode.commands.registerCommand("deepseekUsage.showStats", () => showStats()),
     vscode.commands.registerCommand("deepseekUsage.startProxy", () =>
       startProxy(context),
@@ -68,9 +80,22 @@ function poll() {
     // 北京日切换：重建当天聚合（重扫文件）
     tailReader.reset();
     stats = newTodayStats();
+    modelStats = new Map();
+    recentRecs = [];
     lastDayStart = dayStart;
   }
-  for (const rec of tailReader.readNew()) addRecord(stats, rec);
+  for (const rec of tailReader.readNew()) {
+    if (addRecord(stats, rec)) {
+      let m = modelStats.get(rec.model);
+      if (!m) {
+        m = newModelStats();
+        modelStats.set(rec.model, m);
+      }
+      addModelRecord(m, rec);
+    }
+    recentRecs.push(rec);
+    if (recentRecs.length > RECENT_CAP) recentRecs.shift();
+  }
   renderStatusBar();
 }
 
@@ -102,15 +127,13 @@ function fmtTok(n: number): string {
   return `${(n / 1e6).toFixed(2)}M`;
 }
 
-async function showStats() {
-  const s = stats;
-  const items: vscode.QuickPickItem[] = [
-    { label: `费用 ￥${s.cost.toFixed(4)} / 缓存 ￥${s.chCost.toFixed(4)}`, description: "今天（北京时间）" },
-    { label: `总token ${fmtTok(s.t)} / 缓存 ${fmtTok(s.ch)}`, description: "输入输出 ${fmtTok(s.p)}/${fmtTok(s.c)}" },
-  ];
-  await vscode.window.showQuickPick(items, {
-    placeHolder: "DeepSeek Usage 今日明细（占位，后续做 Webview）",
-  });
+function showStats() {
+  openDetailPanel(() => ({
+    stats,
+    models: [...modelStats.entries()].map(([name, m]) => ({ name, m })),
+    recent: recentRecs,
+    peakNow: isPeakBeijing(new Date()),
+  }));
 }
 
 async function startProxy(context: vscode.ExtensionContext) {

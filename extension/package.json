@@ -19,10 +19,6 @@
   "contributes": {
     "commands": [
       {
-        "command": "deepseekUsage.refresh",
-        "title": "DeepSeek Usage: 刷新统计"
-      },
-      {
         "command": "deepseekUsage.showStats",
         "title": "DeepSeek Usage: 今日明细"
       },
