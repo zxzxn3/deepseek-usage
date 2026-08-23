@@ -33,9 +33,10 @@ import re
 import sqlite3
 import sys
 import threading
+import unicodedata
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -238,38 +239,138 @@ def _usage_fields(usage: dict):
 _print_lock = threading.Lock()  # 多线程同时打印时不串行
 
 
-def _live_print(line: str) -> None:
-    with _print_lock:
-        print(line, flush=True)
+# --------------------------------------------------------------------------- #
+# 终端美化：显示宽度感知对齐 / k·M 缩写 / 模型截断 / 底部统计栏
+# --------------------------------------------------------------------------- #
+
+_status_enabled = False  # proxy 模式 + TTY 时开启底部统计栏；非 TTY 退化为纯追加
+
+
+def _disp_width(s: str) -> int:
+    """终端显示宽度：中日韩全角字符按 2 列计，保证含 ￥/中文时对齐。"""
+    return sum(2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1 for ch in s)
+
+
+def _pad(s: str, width: int, align: str = "<") -> str:
+    """按显示宽度补齐/截断；align '<' 左对齐，'>' 右对齐。"""
+    pad = width - _disp_width(s)
+    if pad <= 0:
+        return s
+    return s + " " * pad if align == "<" else " " * pad + s
+
+
+def _fmt_num(n) -> str:
+    """token 缩写：<1000 原样 → <1e6 一位小数 k → 否则两位小数 M。"""
+    if n is None:
+        return "—"
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}k"
+    return f"{n / 1e6:.2f}M"
+
+
+def _trunc_model(name, width: int = 20) -> str:
+    name = name or DEFAULT_MODEL
+    if len(name) <= width:
+        return name
+    return name[: width - 3] + "..."
+
+
+# 表格列宽（含尾随空格作列间分隔）；表头与行共用同一套宽度保证对齐
+_HDR = (
+    _pad("时间", 10)
+    + _pad("模型", 21)
+    + _pad("p输入", 11, ">")
+    + _pad("c输出", 11, ">")
+    + _pad("t总token(费用)", 19, ">")
+    + _pad("cH缓存命中(费用)", 19, ">")
+    + _pad("模式", 6, ">")
+    + _pad("状态", 5, ">")
+)
+_SEP = "-" * _disp_width(_HDR)
 
 
 def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
-    """把一次请求的 usage + 费用 格式化成一行实时日志。"""
+    """把一次请求的 usage + 费用 格式化成一行表格行。"""
     ts = datetime.now().strftime("%H:%M:%S")
+    model_s = _trunc_model(model)
+    p_s = _fmt_num(pt) if pt is not None else "—"
+    c_s = _fmt_num(ct) if ct is not None else "—"
+    t_s = _fmt_num(tt) if tt is not None else "—"
+    ch_s = _fmt_num(ch) if ch is not None else "—"
     if error:
-        return f"[{ts}] {model} | 失败: {error} | s {status}"
-    parts = []
-    if pt is not None:
-        parts.append(f"p {pt:,}")
-    if ct is not None:
-        parts.append(f"c {ct:,}")
-    if tt is not None:
-        # 总费用 = 输入(缓存命中+未命中) + 输出
+        t_col, ch_col = "—", "—"
+    else:
         cost = (
             cost_from_usage(pt, ct, ch, cm, model=model)
             if None not in (pt, ct, ch, cm)
             else None
         )
-        cstr = "" if cost is None else f"￥{cost:.4f}"
-        parts.append(f"t {tt:,}({cstr})")
-    if ch is not None:
-        # 缓存命中部分的费用 = 命中 token × 命中单价
-        p = PRICING.get(model, PRICING[DEFAULT_MODEL])
-        hit_cost = ch * p["cache_hit"] / 1e6
-        parts.append(f"cH {ch:,}(￥{hit_cost:.4f})")
-    tok = " ".join(parts) if parts else "(无 usage)"
-    mode = "stream" if stream else "once"
-    return f"[{ts}] {model} | {tok} | {mode} | s {status}"
+        t_col = t_s + ("" if cost is None else f"(￥{cost:.4f})")
+        pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
+        ch_col = ch_s + ("" if ch is None else f"(￥{ch * pr['cache_hit'] / 1e6:.4f})")
+    mode = "s" if stream else "o"
+    row = (
+        _pad(ts, 10)
+        + _pad(model_s, 21)
+        + _pad(p_s, 11, ">")
+        + _pad(c_s, 11, ">")
+        + _pad(t_col, 19, ">")
+        + _pad(ch_col, 19, ">")
+        + _pad(mode, 6, ">")
+        + _pad(str(status), 5, ">")
+    )
+    if error:
+        row += "  ✗ " + (error or "").splitlines()[0][:80]
+    return row
+
+
+def _today_stats():
+    """今天（本地时区）的累计；费用用行内已存 cost 精确求和（落库未预先舍入）。"""
+    con = init_db()
+    local_now = datetime.now().astimezone()
+    start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    rows = con.execute(
+        "SELECT model,prompt_tokens,completion_tokens,total_tokens,"
+        "cache_hit_tokens,cost FROM usage_log WHERE ts>=? AND ts<?",
+        (
+            start.astimezone(timezone.utc).isoformat(timespec="seconds"),
+            end.astimezone(timezone.utc).isoformat(timespec="seconds"),
+        ),
+    ).fetchall()
+    con.close()
+    p = c = t = ch = cost = ch_cost = 0
+    for model, pt, ct, tt, chh, row_cost in rows:
+        p += pt or 0
+        c += ct or 0
+        t += tt or 0
+        ch += chh or 0
+        cost += row_cost or 0  # NULL（错误/老记录）按 0 兜底
+        pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
+        ch_cost += (chh or 0) * pr["cache_hit"] / 1e6
+    return p, c, t, ch, cost, ch_cost
+
+
+def _status_text() -> str:
+    """底部统计栏：日期 + 今天的 p/c/t(￥)/cH(￥)。"""
+    p, c, t, ch, cost, ch_cost = _today_stats()
+    date = datetime.now().strftime("%Y-%m-%d")
+    return (
+        f"{date} | p {_fmt_num(p)} c {_fmt_num(c)} t {_fmt_num(t)}(￥{cost:.4f})"
+        f" cH {_fmt_num(ch)}(￥{ch_cost:.4f})"
+    )
+
+
+def _emit_row(line: str) -> None:
+    """实时行 + 底部统计栏：整段在锁内完成，避免多线程打印交错。"""
+    with _print_lock:
+        if _status_enabled:
+            sys.stdout.write("\r\x1b[K")
+        print(line, flush=True)
+        if _status_enabled:
+            print(_status_text(), flush=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -381,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
             error=error,
         )
         con.close()
-        _live_print(_fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error))
+        _emit_row(_fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error))
 
     def _proxy_stream(self, auth, body, model, messages, input_chars):
         """真流式透传：边从 DeepSeek 收 chunk 边转发给客户端，末尾抓 usage 落库。"""
@@ -581,7 +682,7 @@ class Handler(BaseHTTPRequestHandler):
                 error=str(e),
             )
             con.close()
-            _live_print(
+            _emit_row(
                 _fmt_usage(model, None, None, None, None, None, stream, 0, str(e))
             )
             self._send(500, json.dumps({"error": str(e)}).encode())
@@ -627,7 +728,7 @@ class Handler(BaseHTTPRequestHandler):
             status=status,
         )
         con.close()
-        _live_print(_fmt_usage(model, pt, ct, tt, ch, cm, stream, status))
+        _emit_row(_fmt_usage(model, pt, ct, tt, ch, cm, stream, status))
 
         # 转发给客户端
         ctype = _h.get("Content-Type", "application/json")
@@ -667,10 +768,19 @@ def cmd_proxy(args):
     print(f"  DB   : {DB_PATH}")
     print(f"  JSONL: {JSONL_PATH}")
     print("Ctrl+C 停止。")
+    # 终端美化：TTY 下打印表头 + 底部统计栏；被重定向（管道/文件）时退化为纯追加
+    global _status_enabled
+    _status_enabled = sys.stdout.isatty()
+    if _status_enabled:
+        print(_HDR)
+        print(_SEP)
+        print(_status_text(), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        print("\n已停止。")
+        if _status_enabled:
+            sys.stdout.write("\r\x1b[K")
+        print("已停止。")
         srv.server_close()
 
 
