@@ -67,10 +67,6 @@ def resolve_token() -> str:
     )
 
 
-def deepseek_headers(token: str) -> dict:
-    return {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
-
-
 def validate_token_format(token: str) -> list:
     """检查 DeepSeek API key 格式，返回问题列表（空=看起来正常）。
 
@@ -182,16 +178,22 @@ def insert_log(
         )
 
 
-def http_call(token, body: dict, stream: bool = False, timeout: int = 120):
-    """向 DeepSeek API 发起请求，返回 (status, headers, raw_bytes)。"""
+def http_call(authorization: str, body: dict, stream: bool = False, timeout: int = 120):
+    """向 DeepSeek API 发起请求，返回 (status, headers, raw_bytes)。
+
+    authorization 是完整的 Authorization 头值（如 'Bearer sk-...'）：
+    - 代理模式：优先透传客户端带来的头（扩展已带 key，无需再配环境变量）
+    - check 模式：由 resolve_token() 构造
+    """
     payload = dict(body)
     if stream:
         # 让流式响应在末尾携带 usage chunk
         payload.setdefault("stream_options", {}).setdefault("include_usage", True)
+    headers = {"Authorization": authorization, "Content-Type": "application/json"}
     req = urllib.request.Request(
         API_URL,
         data=json.dumps(payload).encode("utf-8"),
-        headers=deepseek_headers(token),
+        headers=headers,
         method="POST",
     )
     try:
@@ -228,7 +230,9 @@ def cmd_check(args):
         "max_tokens": args.max_tokens,
     }
     print(f"正在请求 {API_URL}  (model={args.model}) ...")
-    status, _h, out = http_call(token, body, stream=False, timeout=args.timeout)
+    status, _h, out = http_call(
+        "Bearer " + token, body, stream=False, timeout=args.timeout
+    )
     if status != 200:
         sys.exit(f"HTTP {status}\n{out.decode('utf-8', 'replace')[:1000]}")
     data = json.loads(out.decode("utf-8", "replace"))
@@ -316,16 +320,20 @@ class Handler(BaseHTTPRequestHandler):
         model = body.get("model", DEFAULT_MODEL)
         input_chars = sum(len(str(m.get("content", ""))) for m in messages)
 
-        try:
-            token = resolve_token()
-        except SystemExit as e:
-            self._send(500, json.dumps({"error": str(e)}).encode())
-            return
+        # 认证：优先透传客户端带来的 Authorization 头（扩展已带 key，无需再配环境变量）；
+        # 客户端没带头时（如裸客户端）才回退到环境变量 key
+        client_auth = self.headers.get("Authorization")
+        if client_auth and client_auth.strip():
+            auth = client_auth.strip()
+        else:
+            try:
+                auth = "Bearer " + resolve_token()
+            except SystemExit as e:
+                self._send(500, json.dumps({"error": str(e)}).encode())
+                return
 
         try:
-            status, _h, out = http_call(
-                token, body, stream=stream, timeout=args_timeout
-            )
+            status, _h, out = http_call(auth, body, stream=stream, timeout=args_timeout)
         except Exception as e:
             con = init_db()
             insert_log(
@@ -404,8 +412,15 @@ args_timeout = 120  # proxy 处理器里引用的请求超时
 def cmd_proxy(args):
     global args_timeout
     args_timeout = args.timeout
-    token = resolve_token()  # 先验证 key 可解析
-    warn_token_format(token, "proxy key")  # 软校验：格式怪只是提醒，不阻断
+    # 环境变量 key 是"可选兜底"：扩展透传时不需要；裸客户端 / check 才需要
+    env_key = os.environ.get("DEEPSEEK_API_KEY")
+    if env_key and env_key.strip():
+        warn_token_format(env_key.strip(), "proxy key")
+    else:
+        print(
+            "提示: 未设置 DEEPSEEK_API_KEY，将依赖客户端自带 Authorization"
+            "（扩展透传场景适用）"
+        )
     init_db()
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"本地代理已启动: http://127.0.0.1:{args.port}/v1/chat/completions")
