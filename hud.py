@@ -6,7 +6,8 @@
 - 小号：token 总/缓存命中   46.33M/44.34M
 
 用法：python hud.py
-交互：拖拽移动；右键 → 退出
+交互：按住数字拖拽移动；右键 → 退出
+特性：背景透明、透明区点击穿透（Windows -transparentcolor），不挡下面窗口
 依赖：仅标准库 tkinter（Windows 自带）+ termfmt/pricing。
 """
 
@@ -70,7 +71,8 @@ class Hud:
         self.root.title("DeepSeek usage")
         self.root.overrideredirect(True)  # 无边框
         self.root.attributes("-topmost", True)  # 永远置顶
-        self.root.attributes("-alpha", 0.94)  # 半透明
+        # 背景色变全透明，且透明像素的点击穿透到下面窗口（Windows 特性）
+        self.root.attributes("-transparentcolor", BG)
         self.root.configure(bg=BG)
         self._make_ui()
         self._place_top_center()
@@ -102,7 +104,7 @@ class Hud:
         self.root.update_idletasks()
         w = self.root.winfo_reqwidth()
         sw = self.root.winfo_screenwidth()
-        self.root.geometry(f"+{max(0, (sw - w) // 2)}+8")  # 顶部居中
+        self.root.geometry(f"+{max(0, (sw - w) // 2 + 200)}+8")  # 顶部居中再右移 200px
 
     # ---------- 拖拽 ----------
     def _bind_drag(self):
