@@ -56,8 +56,16 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("deepseekUsage.stopProxy", () => stopProxy()),
   );
 
-  poll(); // 立即刷一次，并启动轮询
-  setInterval(poll, 1000); // 每秒检查，按配置的 interval 触发实际刷新
+  poll(); // 立即刷一次
+  startPolling();
+  // 轮询间隔配置变更时重建定时器
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("deepseekUsage.pollIntervalSeconds")) {
+        startPolling();
+      }
+    }),
+  );
 
   // R6：自动起代理；流式实现前 autoStart 默认 false
   if (getCfg().get<boolean>("autoStart", false)) {
@@ -66,11 +74,22 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  if (timer) clearInterval(timer); // 停用即停止轮询
   stopProxy(); // 恢复 baseUrl
 }
 
 function getCfg(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("deepseekUsage");
+}
+
+function pollIntervalMs(): number {
+  const sec = getCfg().get<number>("pollIntervalSeconds", 10);
+  return Math.max(2, sec) * 1000; // 下限 2s，与配置 minimum 一致
+}
+
+function startPolling() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(poll, pollIntervalMs());
 }
 
 function poll() {

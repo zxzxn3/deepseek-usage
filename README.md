@@ -79,6 +79,12 @@ $env:DEEPSEEK_API_KEY = "sk-..."          # 在终端设置，别发 AI
 - `PRICING`：官方定价表（2026-08，含缓存命中/未命中/输出）
 - `cost_from_usage`：精确 usage 计费
 
+## Node 扩展（extension/）
+
+正在进行中的 Node/TypeScript 版 VS Code 扩展（`extension/`，分支 `feature/node-rewrite`）：状态栏实时显示今日费用 / token（北京时间 + 高峰），今日明细 Webview 面板（汇总 + 按模型 + 最近请求），代理日志进输出面板，多语言（默认英文）。
+
+**已知边界**：DeepSeek Copilot 的**视觉（图片）功能**走独立的 `deepseek-copilot.visionProxy.config`（自带 `url` / `apiType` / `apiKey`，存在 globalState），**与 `baseUrl` 无关**——因此视觉请求默认不经过本代理、不计入用量统计。
+
 ## 说明
 
 - 权威精确值始终以 **platform.deepseek.com 仪表板**为准。
