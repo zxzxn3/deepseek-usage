@@ -1,0 +1,78 @@
+{
+  "name": "deepseek-usage",
+  "displayName": "DeepSeek Usage",
+  "description": "本地代理拦截 DeepSeek 真实请求，状态栏实时显示今日费用与 token 用量（北京时间）。",
+  "version": "0.1.0",
+  "publisher": "local",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "deepseekUsage.refresh",
+        "title": "DeepSeek Usage: 刷新统计"
+      },
+      {
+        "command": "deepseekUsage.showStats",
+        "title": "DeepSeek Usage: 今日明细"
+      },
+      {
+        "command": "deepseekUsage.startProxy",
+        "title": "DeepSeek Usage: 启动代理"
+      },
+      {
+        "command": "deepseekUsage.stopProxy",
+        "title": "DeepSeek Usage: 停止代理"
+      }
+    ],
+    "configuration": {
+      "title": "DeepSeek Usage",
+      "properties": {
+        "deepseekUsage.port": {
+          "type": "number",
+          "default": 8080,
+          "description": "本地代理监听端口。"
+        },
+        "deepseekUsage.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "VS Code 启动时自动拉起代理（流式透传实现前先保持关闭，R1 后改回 true）。"
+        },
+        "deepseekUsage.manageBaseUrl": {
+          "type": "boolean",
+          "default": true,
+          "description": "代理运行时自动把 deepseek-copilot.baseUrl 指向本地代理，停止时恢复原值。"
+        },
+        "deepseekUsage.pollIntervalSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 2,
+          "description": "状态栏刷新间隔（秒）。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node build.js",
+    "watch": "node build.js --watch",
+    "typecheck": "tsc --noEmit",
+    "smoke": "esbuild smoke.ts --bundle --format=cjs --platform=node --outfile=out/smoke.js && node out/smoke.js",
+    "vscode:prepublish": "node build.js --production"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
