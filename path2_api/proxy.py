@@ -29,6 +29,7 @@ prompt_cache_miss_tokens）。本工具做三件事：
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 import urllib.error
@@ -68,6 +69,31 @@ def resolve_token() -> str:
 
 def deepseek_headers(token: str) -> dict:
     return {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+
+
+def validate_token_format(token: str) -> list:
+    """检查 DeepSeek API key 格式，返回问题列表（空=看起来正常）。
+
+    只做"格式提醒"，不硬性拦截——因为兼容提供商的 token 可能不以 sk- 开头。
+    """
+    issues = []
+    if not token:
+        issues.append("token 为空")
+        return issues
+    if not token.startswith("sk-"):
+        issues.append(
+            f"不以 sk- 开头（前 {len(token[:4])} 字符为 {token[:4]!r}；兼容提供商可能不同）"
+        )
+    if len(token) < 20:
+        issues.append(f"长度仅 {len(token)} 字符（官方 DeepSeek key 通常约 35 字符）")
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+", token):
+        issues.append("含非常见字符（正常应为字母/数字/-/_）")
+    return issues
+
+
+def warn_token_format(token: str, where: str = "key") -> None:
+    for issue in validate_token_format(token):
+        print(f"[提醒] {where} 格式可能有问题：{issue}", file=sys.stderr)
 
 
 def init_db() -> sqlite3.Connection:
@@ -193,6 +219,7 @@ def _usage_fields(usage: dict):
 
 def cmd_check(args):
     token = resolve_token()
+    warn_token_format(token, "check key")  # 软校验：格式怪只是提醒，仍会发请求
     body = {
         "model": args.model,
         "messages": [{"role": "user", "content": args.prompt}],
@@ -377,7 +404,8 @@ args_timeout = 120  # proxy 处理器里引用的请求超时
 def cmd_proxy(args):
     global args_timeout
     args_timeout = args.timeout
-    resolve_token()  # 先验证 key 可解析
+    token = resolve_token()  # 先验证 key 可解析
+    warn_token_format(token, "proxy key")  # 软校验：格式怪只是提醒，不阻断
     init_db()
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"本地代理已启动: http://127.0.0.1:{args.port}/v1/chat/completions")
