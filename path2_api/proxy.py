@@ -270,38 +270,28 @@ def _fmt_num(n) -> str:
     return f"{n / 1e6:.2f}M"
 
 
-def _trunc_model(name, width: int = 20) -> str:
-    name = name or DEFAULT_MODEL
-    if len(name) <= width:
-        return name
-    return name[: width - 3] + "..."
-
-
 # 表格列宽（含尾随空格作列间分隔）；表头与行共用同一套宽度保证对齐
 _HDR = (
     _pad("时间", 10)
-    + _pad("模型", 21)
-    + _pad("p输入", 11, ">")
-    + _pad("c输出", 11, ">")
-    + _pad("t总token(费用)", 19, ">")
-    + _pad("cH缓存命中(费用)", 19, ">")
-    + _pad("模式", 6, ">")
-    + _pad("状态", 5, ">")
+    + _pad("输入/输出", 13, ">")
+    + _pad("总token(费用)", 18, ">")
+    + _pad("缓存命中(费用)", 20, ">")
+    + _pad("状态", 6, ">")
 )
 _SEP = "-" * _disp_width(_HDR)
 
 
 def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
-    """把一次请求的 usage + 费用 格式化成一行表格行。"""
+    """把一次请求的 usage + 费用 格式化成一行（模型启动时统一说明，行内省略）。"""
     ts = datetime.now().strftime("%H:%M:%S")
-    model_s = _trunc_model(model)
     p_s = _fmt_num(pt) if pt is not None else "—"
     c_s = _fmt_num(ct) if ct is not None else "—"
     t_s = _fmt_num(tt) if tt is not None else "—"
     ch_s = _fmt_num(ch) if ch is not None else "—"
     if error:
-        t_col, ch_col = "—", "—"
+        pc_col, t_col, ch_col = "—", "—", "—"
     else:
+        pc_col = f"{p_s}/{c_s}"
         cost = (
             cost_from_usage(pt, ct, ch, cm, model=model)
             if None not in (pt, ct, ch, cm)
@@ -309,17 +299,14 @@ def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
         )
         t_col = t_s + ("" if cost is None else f"(￥{cost:.4f})")
         pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
-        ch_col = ch_s + ("" if ch is None else f"(￥{ch * pr['cache_hit'] / 1e6:.4f})")
+        ch_col = f"cH {ch_s}" + ("" if ch is None else f"(￥{ch * pr['cache_hit'] / 1e6:.4f})")
     mode = "s" if stream else "o"
     row = (
         _pad(ts, 10)
-        + _pad(model_s, 21)
-        + _pad(p_s, 11, ">")
-        + _pad(c_s, 11, ">")
-        + _pad(t_col, 19, ">")
-        + _pad(ch_col, 19, ">")
-        + _pad(mode, 6, ">")
-        + _pad(str(status), 5, ">")
+        + _pad(pc_col, 13, ">")
+        + _pad(t_col, 18, ">")
+        + _pad(ch_col, 20, ">")
+        + _pad(f"{mode}{status}", 6, ">")
     )
     if error:
         row += "  ✗ " + (error or "").splitlines()[0][:80]
@@ -770,6 +757,7 @@ def cmd_proxy(args):
         )
     print(f"本地代理已启动: http://127.0.0.1:{args.port}/v1/chat/completions")
     print("把任何 OpenAI 兼容客户端的 base_url 指向这里，每次请求的 usage 都会记录到")
+    print(f" 模型  : 透传客户端请求（默认 {DEFAULT_MODEL}）")
     print(f"  DB   : {DB_PATH}")
     print(f"  JSONL: {JSONL_PATH}")
     print("Ctrl+C 停止。")
