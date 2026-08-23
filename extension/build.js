@@ -33,6 +33,7 @@ async function main() {
   if (watch) {
     await ctx.watch();
     console.log("[esbuild] watching…");
+    console.log("[esbuild] build done (initial)");
   } else {
     await ctx.rebuild();
     await ctx.dispose();
