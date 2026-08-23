@@ -244,7 +244,7 @@ def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
     """把一次请求的 usage + 费用 格式化成一行实时日志。"""
     ts = datetime.now().strftime("%H:%M:%S")
     if error:
-        return f"[{ts}] {model} | 失败: {error} | status {status}"
+        return f"[{ts}] {model} | 失败: {error} | s {status}"
     parts = []
     if pt is not None:
         parts.append(f"p {pt:,}")
@@ -263,10 +263,10 @@ def _fmt_usage(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
         # 缓存命中部分的费用 = 命中 token × 命中单价
         p = PRICING.get(model, PRICING[DEFAULT_MODEL])
         hit_cost = ch * p["cache_hit"] / 1e6
-        parts.append(f"cacheH {ch:,}(￥{hit_cost:.4f})")
+        parts.append(f"cH {ch:,}(￥{hit_cost:.4f})")
     tok = " ".join(parts) if parts else "(无 usage)"
     mode = "流式" if stream else "一次"
-    return f"[{ts}] {model} | {tok} | {mode} | status {status}"
+    return f"[{ts}] {model} | {tok} | {mode} | s {status}"
 
 
 # --------------------------------------------------------------------------- #
