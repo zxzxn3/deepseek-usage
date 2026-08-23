@@ -344,13 +344,12 @@ def _today_stats():
 
 
 def _status_text() -> str:
-    """底部统计栏：日期 + 今天累计，与行格式一致（输入/输出、token总/缓存、费用总/缓存）。"""
+    """底部统计栏：日期 + 今天累计，与实时行同格式（纯数值对，无标签）。"""
     p, c, t, ch, cost, ch_cost = _today_stats()
     date = datetime.now().strftime("%Y-%m-%d")
     return (
-        f"{date} | 输入/输出 {_fmt_num(p)}/{_fmt_num(c)}"
-        f" token总/缓存 {_fmt_num(t)}/{_fmt_num(ch)}"
-        f" 费用 ￥{cost:.4f}/{ch_cost:.4f}"
+        f"{date}  {_fmt_num(p)}/{_fmt_num(c)}  "
+        f"{_fmt_num(t)}/{_fmt_num(ch)}  ￥{cost:.4f}/{ch_cost:.4f}"
     )
 
 
