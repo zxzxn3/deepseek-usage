@@ -91,7 +91,7 @@
         },
         "deepseekUsage.cnyPerUsd": {
           "type": "number",
-          "default": 7.0,
+          "default": 6.74,
           "description": "%config.cnyPerUsd%"
         }
       }

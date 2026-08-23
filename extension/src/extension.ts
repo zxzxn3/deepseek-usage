@@ -118,7 +118,7 @@ function getCurrency(): Currency {
 }
 
 function getCnyPerUsd(): number {
-  return getLiveRate() ?? getCfg().get<number>("cnyPerUsd", 7.0);
+  return getLiveRate() ?? getCfg().get<number>("cnyPerUsd", 6.74);
 }
 
 /** 拉取实时汇率；成功后重渲染状态栏（金额可能变化）。 */

@@ -4,7 +4,7 @@ import { modelPrice, costFromUsage, isPeakBeijing } from "../pricing";
 import { Currency, moneyPair } from "../currency";
 
 let currency: Currency = "cny";
-let cnyPerUsd = 7.0;
+let cnyPerUsd = 6.74;
 export function setCurrency(c: Currency, rate: number): void {
   currency = c;
   cnyPerUsd = rate;

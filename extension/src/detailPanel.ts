@@ -36,7 +36,7 @@ function money(n: number): string {
     .get<Currency>("currency", "cny");
   const rate =
     getLiveRate() ??
-    vscode.workspace.getConfiguration("deepseekUsage").get<number>("cnyPerUsd", 7.0);
+    vscode.workspace.getConfiguration("deepseekUsage").get<number>("cnyPerUsd", 6.74);
   return fmtMoney(n, cur, rate);
 }
 

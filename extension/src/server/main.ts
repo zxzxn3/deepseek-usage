@@ -33,7 +33,7 @@ async function main() {
     }
   }
   if (args.currency === "usd" || args.currency === "cny") {
-    setCurrency(args.currency, Number(args.rate ?? 7.0) || 7.0);
+    setCurrency(args.currency, Number(args.rate ?? 6.74) || 6.74);
   }
   const server = await startProxyServer({ port, jsonlPath: jsonl });
   const hdr = makeHdr();
