@@ -39,6 +39,10 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+# 允许直接运行：把 token_usage 根加入 sys.path 以导入 common.pricing
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from common.pricing import cost_from_usage  # noqa: E402
+
 API_URL = "https://api.deepseek.com/chat/completions"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DEEPSEEK_USAGE_DB", os.path.join(BASE_DIR, "usage.db"))
@@ -110,9 +114,14 @@ def init_db() -> sqlite3.Connection:
             output_chars INTEGER,
             stream INTEGER,
             status INTEGER,
-            error TEXT
+            error TEXT,
+            cost REAL
         )
         """)
+    # 旧库补列：不删已有记录，缺 cost 列就补上
+    cols = {r[1] for r in con.execute("PRAGMA table_info(usage_log)")}
+    if "cost" not in cols:
+        con.execute("ALTER TABLE usage_log ADD COLUMN cost REAL")
     con.commit()
     return con
 
@@ -134,10 +143,16 @@ def insert_log(
     error=None,
 ):
     ts = now_iso()
+    # 费用：用共用定价（common/pricing）按真实 usage 算；token 缺失（如出错）时为 None
+    cost = (
+        cost_from_usage(pt, ct, cache_hit, cache_miss, model=model)
+        if all(v is not None for v in (pt, ct, cache_hit, cache_miss))
+        else None
+    )
     con.execute(
         "INSERT INTO usage_log(ts,model,prompt_tokens,completion_tokens,total_tokens,"
         "cache_hit_tokens,cache_miss_tokens,n_messages,input_chars,output_chars,"
-        "stream,status,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "stream,status,error,cost) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             ts,
             model,
@@ -152,6 +167,7 @@ def insert_log(
             1 if stream else 0,
             status,
             error,
+            cost,
         ),
     )
     con.commit()
@@ -172,6 +188,7 @@ def insert_log(
                     "stream": bool(stream),
                     "status": status,
                     "error": error,
+                    "cost": cost,
                 },
                 ensure_ascii=False,
             )
@@ -619,7 +636,7 @@ def cmd_list(args):
     con = init_db()
     rows = con.execute(
         "SELECT ts,model,prompt_tokens,completion_tokens,total_tokens,"
-        "cache_hit_tokens,n_messages,stream,status,error "
+        "cache_hit_tokens,n_messages,stream,status,error,cost "
         "FROM usage_log ORDER BY id DESC LIMIT ?",
         (args.limit,),
     ).fetchall()
@@ -627,13 +644,14 @@ def cmd_list(args):
     if not rows:
         print("还没有任何记录。先运行 `python proxy.py check` 或启动 proxy。")
         return
-    hdr = f"{'ts':<26}{'model':<20}{'prompt':>7}{'complet':>9}{'total':>8}{'cache':>8}{'msg':>4}{'strm':>5}{'st':>4}"
+    hdr = f"{'ts':<26}{'model':<20}{'prompt':>9}{'complet':>9}{'total':>9}{'cacheH':>9}{'费用':>9}{'msg':>4}{'strm':>5}{'st':>4}"
     print(hdr)
     print("-" * len(hdr))
-    for ts, model, pt, ct, tt, ch, nm, st, status, err in rows:
+    for ts, model, pt, ct, tt, ch, nm, st, status, err, cost in rows:
+        cost_s = "" if cost is None else f"{cost:.4f}"
         print(
-            f"{ts:<26}{str(model or '')[:19]:<20}{str(pt):>7}{str(ct):>9}"
-            f"{str(tt):>8}{str(ch):>8}{nm:>4}{'Y' if st else 'N':>5}{status:>4}"
+            f"{ts:<26}{str(model or '')[:19]:<20}{str(pt):>9}{str(ct):>9}"
+            f"{str(tt):>9}{str(ch):>9}{cost_s:>9}{nm:>4}{'Y' if st else 'N':>5}{status:>4}"
             + (f"  err={err}" if err else "")
         )
 
