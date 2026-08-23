@@ -82,6 +82,17 @@
           "type": "object",
           "default": {},
           "description": "%config.pricing%"
+        },
+        "deepseekUsage.currency": {
+          "type": "string",
+          "enum": ["cny", "usd"],
+          "default": "cny",
+          "description": "%config.currency%"
+        },
+        "deepseekUsage.cnyPerUsd": {
+          "type": "number",
+          "default": 7.0,
+          "description": "%config.cnyPerUsd%"
         }
       }
     }

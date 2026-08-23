@@ -11,5 +11,7 @@
   "config.autoStart": "Automatically start the proxy when VS Code launches.",
   "config.manageBaseUrl": "Point deepseek-copilot.baseUrl at the local proxy while running, and restore it when stopped.",
   "config.pollIntervalSeconds": "Status bar refresh interval (seconds).",
-  "config.pricing": "Per-model price overrides (yuan per million tokens): an object keyed by model, each value {cache_hit, cache_miss, output}. Merged over the built-in defaults."
+  "config.pricing": "Per-model price overrides (yuan per million tokens): an object keyed by model, each value {cache_hit, cache_miss, output}. Merged over the built-in defaults.",
+  "config.currency": "Cost display currency: cny (￥) or usd ($).",
+  "config.cnyPerUsd": "CNY per 1 USD, used to convert cost to USD when currency is usd."
 }

@@ -1,6 +1,14 @@
 // termfmt.ts — 代理输出格式化（对齐表格行），对齐 Python 版 termfmt.py 的观感。
 // 输出面板/管道是纯文本（无 ANSI 色），这里保留：列对齐 / k-M 缩写 / ￥费用 / 状态列。
 import { modelPrice, costFromUsage, isPeakBeijing } from "../pricing";
+import { Currency, moneyPair } from "../currency";
+
+let currency: Currency = "cny";
+let cnyPerUsd = 7.0;
+export function setCurrency(c: Currency, rate: number): void {
+  currency = c;
+  cnyPerUsd = rate;
+}
 
 export function fmtNum(n: number | null | undefined): string {
   if (n === null || n === undefined) return "—";
@@ -92,7 +100,7 @@ export function fmtRow(inp: FmtRowInput): string {
       const cost = costFromUsage(pt, ct, ch, cm, model, peak);
       const pr = modelPrice(model);
       const chCost = (ch * pr.cache_hit) / 1e6 * (peak ? 2.0 : 1.0);
-      costCol = `￥${cost.toFixed(4)}/${chCost.toFixed(4)}`;
+      costCol = moneyPair(cost, chCost, currency, cnyPerUsd);
     } else {
       costCol = "—";
     }

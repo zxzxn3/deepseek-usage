@@ -1,7 +1,7 @@
 // 代理子进程入口：node out/server.js --port 8080 --jsonl <path>
 // 由扩展 spawn；也可独立运行便于调试。
 import { startProxyServer } from "./proxyServer";
-import { makeHdr, makeSep } from "./termfmt";
+import { makeHdr, makeSep, setCurrency } from "./termfmt";
 import { applyOverrides, setPricingTable } from "../pricing";
 
 function parseArgs(argv: string[]): Record<string, string | undefined> {
@@ -11,6 +11,8 @@ function parseArgs(argv: string[]): Record<string, string | undefined> {
     if (a === "--port") args.port = argv[++i];
     else if (a === "--jsonl") args.jsonl = argv[++i];
     else if (a === "--pricing") args.pricing = argv[++i];
+    else if (a === "--currency") args.currency = argv[++i];
+    else if (a === "--rate") args.rate = argv[++i];
   }
   return args;
 }
@@ -29,6 +31,9 @@ async function main() {
     } catch {
       console.error("invalid --pricing JSON");
     }
+  }
+  if (args.currency === "usd" || args.currency === "cny") {
+    setCurrency(args.currency, Number(args.rate ?? 7.0) || 7.0);
   }
   const server = await startProxyServer({ port, jsonlPath: jsonl });
   const hdr = makeHdr();

@@ -20,6 +20,7 @@ import {
   applyOverrides,
   setPricingTable,
 } from "./pricing";
+import { Currency, fmtMoney, moneyPair } from "./currency";
 import { openDetailPanel } from "./detailPanel";
 import { t } from "./i18n";
 
@@ -100,6 +101,14 @@ function getStatusFormat(): StatusFormat {
   return getCfg().get<StatusFormat>("statusBarFormat", "full");
 }
 
+function getCurrency(): Currency {
+  return getCfg().get<Currency>("currency", "cny");
+}
+
+function getCnyPerUsd(): number {
+  return getCfg().get<number>("cnyPerUsd", 7.0);
+}
+
 /** 应用用户定价覆盖到生效表。 */
 function applyPricingConfig() {
   const overrides = getCfg().get<Record<string, Partial<ModelPrice>>>(
@@ -144,10 +153,12 @@ function renderStatusBar() {
   const s = stats;
   const running = proxyProc !== null && !proxyProc.killed;
   const fmt = getStatusFormat();
+  const cur = getCurrency();
+  const rate = getCnyPerUsd();
   if (s.t === 0 && s.cost === 0) {
-    statusBar.text = `$(credit-card) ￥--/--  --/--`;
+    statusBar.text = `$(credit-card) ${cur === "usd" ? "$" : "￥"}--/--  --/--`;
   } else {
-    const costText = `￥${s.cost.toFixed(4)}/${s.chCost.toFixed(4)}`;
+    const costText = moneyPair(s.cost, s.chCost, cur, rate);
     const tokText = `${fmtTok(s.t)}/${fmtTok(s.ch)}`;
     if (fmt === "cost") {
       statusBar.text = `$(credit-card) ${costText}`;
@@ -156,14 +167,18 @@ function renderStatusBar() {
     } else if (fmt === "totalT") {
       statusBar.text = `$(credit-card) ${fmtTok(s.t)}`;
     } else if (fmt === "totalCost") {
-      statusBar.text = `$(credit-card) ￥${s.cost.toFixed(4)}`;
+      statusBar.text = `$(credit-card) ${fmtMoney(s.cost, cur, rate)}`;
     } else {
       statusBar.text = `$(credit-card) ${costText}  ${tokText}`;
     }
   }
   statusBar.tooltip = new vscode.MarkdownString(
     `${t("todayBeijing")}\n\n` +
-      `${t("cost")} ￥${s.cost.toFixed(4)} / ${t("cacheHit")} ￥${s.chCost.toFixed(4)}\n` +
+      `${t("cost")} ${fmtMoney(s.cost, cur, rate)} / ${t("cacheHit")} ${fmtMoney(
+        s.chCost,
+        cur,
+        rate,
+      )}\n` +
       `${t("totalToken")} ${fmtTok(s.t)} / ${t("cacheHit")} ${fmtTok(s.ch)}\n` +
       `${t("input")} ${fmtTok(s.p)} / ${t("output")} ${fmtTok(s.c)}\n\n` +
       `${t("proxy")}: ${running ? t("proxyRunning") : t("proxyStopped")}\n` +
@@ -206,11 +221,11 @@ async function showStatusFormatMenu() {
   const current = getStatusFormat();
   const check = (f: StatusFormat) => (current === f ? "$(check) " : "");
   const choices: { id: StatusFormat | "details"; label: string; desc: string }[] = [
-    { id: "full", label: `${check("full")}${t("statusFormatFull")}`, desc: "￥cost/chCost  totalT/cacheT" },
-    { id: "cost", label: `${check("cost")}${t("statusFormatCost")}`, desc: "￥cost/chCost" },
+    { id: "full", label: `${check("full")}${t("statusFormatFull")}`, desc: "cost/chCost  totalT/cacheT" },
+    { id: "cost", label: `${check("cost")}${t("statusFormatCost")}`, desc: "cost/chCost" },
     { id: "tokens", label: `${check("tokens")}${t("statusFormatTokens")}`, desc: "totalT/cacheT" },
     { id: "totalT", label: `${check("totalT")}${t("statusFormatTotalT")}`, desc: "totalT" },
-    { id: "totalCost", label: `${check("totalCost")}${t("statusFormatTotalCost")}`, desc: "￥cost" },
+    { id: "totalCost", label: `${check("totalCost")}${t("statusFormatTotalCost")}`, desc: "cost" },
     { id: "details", label: `$(list-unordered) ${t("openDetails")}`, desc: "" },
   ];
   const picked = await vscode.window.showQuickPick(
@@ -277,6 +292,10 @@ async function startProxy(context: vscode.ExtensionContext) {
         jsonlPath,
         "--pricing",
         pricingJson,
+        "--currency",
+        getCurrency(),
+        "--rate",
+        String(getCnyPerUsd()),
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );

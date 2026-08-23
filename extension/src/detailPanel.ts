@@ -9,6 +9,7 @@ import { UsageRecord } from "./jsonl";
 import { modelPrice, costFromUsage, isPeakBeijing } from "./pricing";
 import { fmtNum } from "./server/termfmt";
 import { t } from "./i18n";
+import { Currency, fmtMoney } from "./currency";
 
 export interface ModelRow {
   name: string;
@@ -29,7 +30,13 @@ function beijingTime(ts: string): string {
 }
 
 function money(n: number): string {
-  return `￥${n.toFixed(4)}`;
+  const cur = vscode.workspace
+    .getConfiguration("deepseekUsage")
+    .get<Currency>("currency", "cny");
+  const rate = vscode.workspace
+    .getConfiguration("deepseekUsage")
+    .get<number>("cnyPerUsd", 7.0);
+  return fmtMoney(n, cur, rate);
 }
 
 function esc(s: string): string {
