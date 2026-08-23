@@ -16,6 +16,7 @@ let lastDayStart = 0;
 let timer: NodeJS.Timeout | null = null;
 let proxyProc: cp.ChildProcess | null = null;
 let originalBaseUrl: string | undefined;
+let proxyLog: vscode.OutputChannel | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   // 数据文件：扩展全局存储（用户级、跨工作区）
@@ -118,20 +119,31 @@ async function startProxy(context: vscode.ExtensionContext) {
     return;
   }
   const port = getCfg().get<number>("port", 8080);
+  const log = getProxyLog();
 
-  // 端口探测：已被占用 → 复用现有服务
+  // 端口探测：已被占用 → 复用现有服务（记日志，避免"看不见是谁在听"）
   if (await isPortInUse(port)) {
+    log.appendLine(
+      `[deepseek-usage] 端口 ${port} 已被占用，复用现有服务；` +
+        `若占用方不是本扩展代理，聊天不会落库、状态栏不会更新`,
+    );
     void vscode.window.showWarningMessage(
-      `端口 ${port} 已被占用，直接复用现有服务`,
+      `端口 ${port} 已被占用，直接复用现有服务（详见输出面板）`,
     );
   } else {
     const serverJs = path.join(context.extensionUri.fsPath, "out", "server.js");
+    log.appendLine(
+      `[deepseek-usage] 启动代理 ${serverJs} --port ${port} --jsonl ${jsonlPath}`,
+    );
     proxyProc = cp.spawn(
       process.execPath,
       [serverJs, "--port", String(port), "--jsonl", jsonlPath],
-      { stdio: "ignore" }, // R5：之后可改 OutputChannel 看日志
+      { stdio: ["ignore", "pipe", "pipe"] },
     );
-    proxyProc.on("exit", () => {
+    proxyProc.stdout?.on("data", (d) => log.append(d.toString()));
+    proxyProc.stderr?.on("data", (d) => log.append(d.toString()));
+    proxyProc.on("exit", (code) => {
+      log.appendLine(`[deepseek-usage] 代理进程退出 code=${code}`);
       proxyProc = null;
       renderStatusBar();
     });
@@ -143,18 +155,29 @@ async function startProxy(context: vscode.ExtensionContext) {
   renderStatusBar();
 }
 
+function getProxyLog(): vscode.OutputChannel {
+  if (!proxyLog) {
+    proxyLog = vscode.window.createOutputChannel("DeepSeek Usage 代理");
+  }
+  return proxyLog;
+}
+
 function stopProxy() {
   if (proxyProc && !proxyProc.killed) {
     proxyProc.kill();
   }
   proxyProc = null;
   restoreBaseUrl();
+  getProxyLog().appendLine("[deepseek-usage] 已停止代理并恢复 baseUrl");
   renderStatusBar();
 }
 
 function takeOverBaseUrl(port: number) {
   const cfg = vscode.workspace.getConfiguration("deepseek-copilot");
-  originalBaseUrl = cfg.get<string>("baseUrl");
+  // 只在首次接管时保存原值；重复调用不覆盖，保证 stopProxy 能正确恢复
+  if (originalBaseUrl === undefined) {
+    originalBaseUrl = cfg.get<string>("baseUrl");
+  }
   void cfg.update(
     "baseUrl",
     `http://127.0.0.1:${port}`,
