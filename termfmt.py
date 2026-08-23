@@ -16,17 +16,30 @@ from datetime import datetime
 from pricing import PRICING, DEFAULT_MODEL, cost_from_usage
 
 _status_enabled = False  # TTY 时开启底部统计栏；非 TTY 退化为纯追加
+_color_enabled = False  # TTY 时给状态码/费用/错误上色；非 TTY 保持纯文本
 _print_lock = threading.Lock()  # 多线程同时打印时不串行
+
+# ANSI 颜色（仅 _color_enabled 时生效）
+_RESET = "\x1b[0m"
+_RED = "\x1b[31m"
+_GREEN = "\x1b[32m"
+_YELLOW = "\x1b[33m"
 
 
 def enable(on: bool) -> None:
-    """开启/关闭底部统计栏（由 proxy 在启动时按 isatty 决定）。"""
-    global _status_enabled
+    """开启/关闭终端美化（底部统计栏 + 颜色），由 proxy 按 isatty 决定。"""
+    global _status_enabled, _color_enabled
     _status_enabled = on
+    _color_enabled = on
 
 
 def is_enabled() -> bool:
     return _status_enabled
+
+
+def _c(code, s):
+    """给字符串上色；非 TTY 时原样返回，避免把转义码写进管道/文件。"""
+    return f"{code}{s}{_RESET}" if _color_enabled else s
 
 
 def _disp_width(s: str) -> int:
@@ -64,18 +77,43 @@ HDR = (
 SEP = "-" * _disp_width(HDR)
 
 
-def fmt_row(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
+def _status_color(status):
+    """状态码 → 颜色：2xx 绿、4xx/5xx/0 红、其它不加色。"""
+    if status is None:
+        return None
+    if 200 <= status < 300:
+        return _GREEN
+    if status == 0 or status >= 400:
+        return _RED
+    return None
+
+
+def _cell(s, width, align=">", color=None):
+    """按列宽补齐后上色（先算宽、后上色，颜色码不破坏对齐）。"""
+    padded = _pad(s, width, align)
+    return _c(color, padded) if color else padded
+
+
+def money(s: str) -> str:
+    """给金额上色（黄色），供统计栏等金额显示用。"""
+    return _c(_YELLOW, s)
+
+
+def fmt_row(model, pt, ct, tt, ch, cm, stream, status, error=None, ts=None) -> str:
     """把一次请求的 usage + 费用 格式化成一行（模型启动时统一说明，行内省略）。
 
     列：时间 | 输入/输出(p/c) | token总/缓存(t/cH) | 费用总/缓存 | 状态。
+    ts：可选，覆盖当前时间（供 cmd_list 显示历史记录）；默认取现在。
+    颜色（TTY 时）：状态码 2xx 绿 / 4xx·5xx·0 红，费用黄，错误红。
     """
-    ts = datetime.now().strftime("%H:%M:%S")
+    if ts is None:
+        ts = datetime.now().strftime("%H:%M:%S")
     p_s = fmt_num(pt) if pt is not None else "—"
     c_s = fmt_num(ct) if ct is not None else "—"
     t_s = fmt_num(tt) if tt is not None else "—"
     ch_s = fmt_num(ch) if ch is not None else "—"
     if error:
-        pc_col, tok_col, cost_col = "—", "—", "—"
+        pc_col, tok_col, cost_col, cost_color = "—", "—", "—", None
     else:
         pc_col = f"{p_s}/{c_s}"
         tok_col = f"{t_s}/{ch_s}"
@@ -84,18 +122,19 @@ def fmt_row(model, pt, ct, tt, ch, cm, stream, status, error=None) -> str:
             pr = PRICING.get(model, PRICING[DEFAULT_MODEL])
             ch_cost = ch * pr["cache_hit"] / 1e6
             cost_col = f"￥{cost:.4f}/{ch_cost:.4f}"
+            cost_color = _YELLOW
         else:
-            cost_col = "—"
+            cost_col, cost_color = "—", None
     mode = "s" if stream else "o"
     row = (
         _pad(ts, 10)
-        + _pad(pc_col, 13, ">")
-        + _pad(tok_col, 16, ">")
-        + _pad(cost_col, 18, ">")
-        + _pad(f"{mode}{status}", 6, ">")
+        + _cell(pc_col, 13, ">")
+        + _cell(tok_col, 16, ">")
+        + _cell(cost_col, 18, ">", cost_color)
+        + _cell(f"{mode}{status}", 6, ">", _status_color(status))
     )
     if error:
-        row += "  ✗ " + (error or "").splitlines()[0][:80]
+        row += _c(_RED, "  ✗ " + (error or "").splitlines()[0][:80])
     return row
 
 

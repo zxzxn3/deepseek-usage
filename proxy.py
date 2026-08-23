@@ -241,10 +241,19 @@ def _status_text() -> str:
     """底部统计栏：日期 + 今天累计，与实时行同格式（纯数值对，无标签）。"""
     p, c, t, ch, cost, ch_cost = _today_stats()
     date = datetime.now().strftime("%Y-%m-%d")
+    money_s = termfmt.money(f"￥{cost:.4f}/{ch_cost:.4f}")
     return (
         f"{date}  {termfmt.fmt_num(p)}/{termfmt.fmt_num(c)}  "
-        f"{termfmt.fmt_num(t)}/{termfmt.fmt_num(ch)}  ￥{cost:.4f}/{ch_cost:.4f}"
+        f"{termfmt.fmt_num(t)}/{termfmt.fmt_num(ch)}  {money_s}"
     )
+
+
+def _iso_to_hhmmss(iso: str) -> str:
+    """把库里的 UTC ISO 时间转成本地 HH:MM:SS（供 list 显示历史记录）。"""
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%H:%M:%S")
+    except Exception:
+        return (iso or "")[:19]
 
 
 # --------------------------------------------------------------------------- #
@@ -673,10 +682,11 @@ def cmd_proxy(args):
 
 
 def cmd_list(args):
+    termfmt.enable(sys.stdout.isatty())
     con = init_db()
     rows = con.execute(
         "SELECT ts,model,prompt_tokens,completion_tokens,total_tokens,"
-        "cache_hit_tokens,n_messages,stream,status,error,cost "
+        "cache_hit_tokens,cache_miss_tokens,stream,status,error "
         "FROM usage_log ORDER BY id DESC LIMIT ?",
         (args.limit,),
     ).fetchall()
@@ -684,15 +694,22 @@ def cmd_list(args):
     if not rows:
         print("还没有任何记录。先运行 `python proxy.py check` 或启动 proxy。")
         return
-    hdr = f"{'ts':<26}{'model':<20}{'prompt':>9}{'complet':>9}{'total':>9}{'cacheH':>9}{'费用':>9}{'msg':>4}{'strm':>5}{'st':>4}"
-    print(hdr)
-    print("-" * len(hdr))
-    for ts, model, pt, ct, tt, ch, nm, st, status, err, cost in rows:
-        cost_s = "" if cost is None else f"{cost:.4f}"
+    print(termfmt.HDR)
+    print(termfmt.SEP)
+    for ts, model, pt, ct, tt, ch, cm, st, status, err in rows:
         print(
-            f"{ts:<26}{str(model or '')[:19]:<20}{str(pt):>9}{str(ct):>9}"
-            f"{str(tt):>9}{str(ch):>9}{cost_s:>9}{nm:>4}{'Y' if st else 'N':>5}{status:>4}"
-            + (f"  err={err}" if err else "")
+            termfmt.fmt_row(
+                model,
+                pt,
+                ct,
+                tt,
+                ch,
+                cm,
+                bool(st),
+                status,
+                err,
+                ts=_iso_to_hhmmss(ts),
+            )
         )
 
 
