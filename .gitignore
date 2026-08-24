@@ -1,0 +1,18 @@
+# dependencies & build output
+node_modules/
+out/
+
+# python (retired)
+.venv/
+__pycache__/
+usage*.db
+usage*.db-journal
+usage*.db-wal
+usage*.db-shm
+charts/
+
+# packaged artifact
+*.vsix
+
+# icon design source (track it if you want to keep it in the repo)
+*.psd
