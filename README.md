@@ -3,8 +3,8 @@
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=zxzxo.deepseek-status-bar-for-copilot"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="Install from VS Code Marketplace"></a>
   <br/>
-  <img src="https://img.shields.io/github/license/zxzxn3/deepseek-usage?style=for-the-badge" alt="License" />
-  <img src="https://img.shields.io/github/v/release/zxzxn3/deepseek-usage?style=for-the-badge&label=Version" alt="Version" />
+  <img src="https://img.shields.io/github/license/zxzxn3/deepseek-status-bar-for-copilot?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/github/v/release/zxzxn3/deepseek-status-bar-for-copilot?style=for-the-badge&label=Version" alt="Version" />
 </p>
 
 <p align="center">
