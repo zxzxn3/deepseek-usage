@@ -16,7 +16,7 @@ This extension puts a lightweight local proxy between Copilot Chat (via the [Dee
 ## Why this extension?
 
 - **Real numbers, not estimates.** It reads the `usage` DeepSeek returns on every request (`prompt_tokens` / `completion_tokens` / cache tokens) and prices it with the official rates. The totals match your DeepSeek bill — no heuristic token counting.
-- **Lives in the status bar.** One glance: cost, cache-hit cost, total and cached tokens. Click it to switch between five display formats.
+- **Lives in the status bar.** One glance: cost, cache-hit cost, total and cached tokens. Click it to switch between six display formats.
 - **A real dashboard when you need it.** A webview panel with `today / week / month / all` ranges, an hourly cost & token chart, per-model breakdown, recent requests, and CSV export.
 - **Your API key never touches this extension.** The proxy forwards the `Authorization` header straight through to DeepSeek; the key stays wherever the Copilot extension stores it.
 - **Zero runtime dependencies.** Pure VS Code API + Node.js built-ins. No Python, no Docker, no extra service to babysit.
@@ -112,7 +112,7 @@ Data is stored as one JSON line per request in VS Code's global storage: raw fac
 
 1. Open Copilot Chat and pick a DeepSeek V4 model (the companion extension).
 2. Chat as usual — the status bar starts showing today's cost and tokens.
-3. Click the status bar to switch its format, or run **DeepSeek Usage: Today's Details** for the full panel.
+3. Click the status bar to switch its format, or run **DeepSeek Status Bar: Today's Details** for the full panel.
 
 ## Settings
 
@@ -134,9 +134,9 @@ Data is stored as one JSON line per request in VS Code's global storage: raw fac
 
 | Command | Description |
 |---|---|
-| `DeepSeek Usage: Today's Details` | Open the detail panel |
-| `DeepSeek Usage: Start Proxy` / `Stop Proxy` | Toggle the proxy (the palette entry reflects the current state) |
-| `DeepSeek Usage: Status Bar Format` | Choose the status bar display format |
+| `DeepSeek Status Bar: Today's Details` | Open the detail panel |
+| `DeepSeek Status Bar: Start Proxy` / `Stop Proxy` | Toggle the proxy (the palette entry reflects the current state) |
+| `DeepSeek Status Bar: Display Format` | Choose the status bar display format |
 
 ## Notes & limitations
 
