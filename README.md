@@ -1,7 +1,7 @@
 <h1 align="center">DeepSeek Usage</h1>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=zxzxn3.deepseek-usage"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="Install from VS Code Marketplace"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=zxzxo.deepseek-usage"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="Install from VS Code Marketplace"></a>
   <br/>
   <img src="https://img.shields.io/github/license/zxzxn3/deepseek-usage?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/github/v/release/zxzxn3/deepseek-usage?style=for-the-badge&label=Version" alt="Version" />
@@ -84,7 +84,7 @@ Data is stored as one JSON line per request in VS Code's global storage: raw fac
 
 ### Installation
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=zxzxn3.deepseek-usage) (or build from source below).
+1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=zxzxo.deepseek-usage) (or build from source below).
 2. Reload VS Code. The proxy starts automatically.
 
 ### Usage
