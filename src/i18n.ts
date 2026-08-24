@@ -19,8 +19,8 @@ const dict: Record<string, { en: string; zh: string }> = {
   proxyStopped: { en: "not running", zh: "未运行" },
   clickForDetails: { en: "Click to switch format / view details", zh: "点击切换格式 / 查看明细" },
   proxyAlreadyRunning: {
-    en: "DeepSeek Usage proxy is already running",
-    zh: "DeepSeek Usage 代理已在运行",
+    en: "DeepSeek Status Bar proxy is already running",
+    zh: "DeepSeek Status Bar 代理已在运行",
   },
   portInUseLog: {
     en: "Port {port} is in use; reusing the existing service. If it's not this extension's proxy, chats won't be logged and the status bar won't update.",
@@ -36,8 +36,8 @@ const dict: Record<string, { en: string; zh: string }> = {
   },
   proxyExitLog: { en: "Proxy process exited code={code}", zh: "代理进程退出 code={code}" },
   proxyStoppedLog: { en: "Proxy stopped and baseUrl restored", zh: "已停止代理并恢复 baseUrl" },
-  outputChannelName: { en: "DeepSeek Usage Proxy", zh: "DeepSeek Usage 代理" },
-  panelTitle: { en: "DeepSeek Usage · Today's Details", zh: "DeepSeek Usage · 今日明细" },
+  outputChannelName: { en: "DeepSeek Status Bar Proxy", zh: "DeepSeek Status Bar 代理" },
+  panelTitle: { en: "DeepSeek Status Bar · Today's Details", zh: "DeepSeek Status Bar · 今日明细" },
   peakBadge: { en: "Peak(×2)", zh: "高峰（×2）" },
   offpeakBadge: { en: "Off-peak", zh: "空闲" },
   byModel: { en: "By model", zh: "按模型" },
