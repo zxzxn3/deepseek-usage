@@ -9,13 +9,12 @@
 
 ## 目录
 
-- `extension/` — VS Code 扩展（TypeScript + esbuild，运行时零依赖）
+- 本仓库即 VS Code 扩展（TypeScript + esbuild，运行时零依赖）
 - 数据存于 VS Code 全局存储的 `usage.jsonl`：一行一次请求，只存原始事实（UTC 时间戳 + tokens），费用在展示层按定价现算
 
 ## 构建与调试
 
 ```powershell
-cd extension
 npm install
 npm run compile     # 或 npm run watch（开发热重建）
 npm run typecheck   # 类型检查
