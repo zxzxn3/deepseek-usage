@@ -347,7 +347,9 @@ function stopProxy() {
   }
   proxyProc = null;
   restoreBaseUrl();
-  getProxyLog().appendLine(`[deepseek-usage] ${t("proxyStoppedLog")}`);
+  if (proxyLog) {
+    proxyLog.appendLine(`[deepseek-usage] ${t("proxyStoppedLog")}`);
+  }
   updateProxyContext();
   renderStatusBar();
 }
@@ -379,10 +381,12 @@ function restoreBaseUrl() {
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const sock = net.connect({ port, host: "127.0.0.1" });
-    sock.once("connect", () => {
+    const done = (v: boolean) => {
       sock.destroy();
-      resolve(true);
-    });
-    sock.once("error", () => resolve(false));
+      resolve(v);
+    };
+    sock.setTimeout(1500, () => done(false)); // 超时/黑洞按未占用处理
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
   });
 }
