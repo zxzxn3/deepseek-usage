@@ -13,6 +13,8 @@
 
 This extension puts a lightweight local proxy between Copilot Chat (via the [DeepSeek V4 for Copilot Chat](https://marketplace.visualstudio.com/items?itemName=Vizards.deepseek-v4-for-copilot) extension) and the DeepSeek API. It captures the **real `usage` object from every response** and turns it into today's cost and token totals — Beijing time, peak pricing included.
 
+> **This is an unofficial third-party tool.** Not affiliated with or endorsed by DeepSeek (深度求索).
+
 ## Why this extension?
 
 - **Real numbers, not estimates.** It reads the `usage` DeepSeek returns on every request (`prompt_tokens` / `completion_tokens` / cache tokens) and prices it with the official rates. The totals match your DeepSeek bill — no heuristic token counting.
@@ -20,6 +22,17 @@ This extension puts a lightweight local proxy between Copilot Chat (via the [Dee
 - **A real dashboard when you need it.** A webview panel with `today / week / month / all` ranges, an hourly cost & token chart, per-model breakdown, recent requests, and CSV export.
 - **Your API key never touches this extension.** The proxy forwards the `Authorization` header straight through to DeepSeek; the key stays wherever the Copilot extension stores it.
 - **Zero runtime dependencies.** Pure VS Code API + Node.js built-ins. No Python, no Docker, no extra service to babysit.
+
+## Why this is different
+
+Every other DeepSeek usage tool answers *"how much is left in my account?"* — they poll the [`/user/balance`](https://api.deepseek.com/user/balance) endpoint and show your credit balance. This extension answers a different question: *"what did that request actually cost me?"*
+
+It sits **in the traffic path** — a local proxy that captures the real `usage` object DeepSeek returns on every request and prices it with the official rate card:
+
+- **Ground truth, not estimates.** `usage` is the exact field DeepSeek bills from (`prompt_tokens` / `completion_tokens` / `cache_hit` / `cache_miss`). No heuristic token counting.
+- **Three-way pricing.** Cache hit vs miss, input vs output, and Beijing peak vs off-peak (×2) — the same axes as your real bill.
+- **Aborted generations still count.** Cancel mid-stream and the proxy keeps reading until it captures the final `usage` — so the numbers match what you're billed.
+- **Your API key never touches this extension.** The proxy forwards the `Authorization` header straight through and never stores it.
 
 ## Features
 
