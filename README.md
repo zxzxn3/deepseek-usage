@@ -51,7 +51,11 @@ code --install-extension deepseek-usage-*.vsix
 
 ## 图标
 
-图标槽位：把自制的 `icon.png`（建议 256×256，PNG）放到**仓库根目录**——`package.json` 的 `"icon"` 字段已指向它。`vsce package` 前该文件必须存在（缺了会报错），`icon.png` 会被打进 vsix。
+图标 `icon.png` 放在仓库根目录，`package.json` 的 `"icon"` 字段已指向它，`vsce package` 会打进 vsix。
+
+图标制作参考图源：
+- [DeepSeek icon by Icons8](https://icons8.com/icon/YWOidjGxCpFW/deepseek)
+- [Pinterest](https://pin.it/1VinTVnmY)
 
 ## License
 
