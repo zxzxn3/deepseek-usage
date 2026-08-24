@@ -49,6 +49,10 @@ code --install-extension deepseek-usage-*.vsix
 - `DeepSeek Usage: Toggle Proxy` — 启动 / 停止代理（命令面板按运行状态动态显示）
 - `DeepSeek Usage: Status Bar Format` — 状态栏格式选择
 
+## 图标
+
+图标槽位：把自制的 `icon.png`（建议 256×256，PNG）放到**仓库根目录**——`package.json` 的 `"icon"` 字段已指向它。`vsce package` 前该文件必须存在（缺了会报错），`icon.png` 会被打进 vsix。
+
 ## License
 
 MIT
