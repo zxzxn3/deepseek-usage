@@ -21,11 +21,14 @@ npm run typecheck   # 类型检查
 npm run smoke       # 测试
 ```
 
-F5 打开扩展开发宿主调试；或打包后安装：
+F5 打开扩展开发宿主调试；打包 + 安装 / 重装：
 
 ```powershell
-npx @vscode/vsce package
-code --install-extension deepseek-usage-*.vsix
+# 打包（产物 deepseek-usage-*.vsix 生成在仓库根目录）
+powershell -ExecutionPolicy Bypass -File .\package.ps1
+
+# 安装 / 重装（--force 覆盖同版本；不加会因"版本相同"被拒绝）
+code --install-extension .\deepseek-usage-0.1.0.vsix --force
 ```
 
 ## 配置（settings.json）
