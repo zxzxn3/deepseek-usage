@@ -27,6 +27,12 @@ import { t } from "./i18n";
 
 let statusBar: vscode.StatusBarItem;
 let jsonlPath = "";
+let balancePath = "";
+let latestBalance: {
+  totalCny: number | null;
+  isAvailable: boolean;
+  ts: string;
+} | null = null;
 let tailReader: TailReader | null = null;
 let stats: TodayStats = newTodayStats();
 let lastDayStart = 0;
@@ -39,6 +45,7 @@ let rateTimer: NodeJS.Timeout | null = null;
 export function activate(context: vscode.ExtensionContext) {
   // 数据文件：扩展全局存储（用户级、跨工作区）
   jsonlPath = path.join(context.globalStorageUri.fsPath, "usage.jsonl");
+  balancePath = path.join(context.globalStorageUri.fsPath, "balance.jsonl");
   fs.mkdirSync(path.dirname(jsonlPath), { recursive: true });
   tailReader = new TailReader(jsonlPath);
   lastDayStart = beijingDayStartUtcMs(new Date());
@@ -77,6 +84,9 @@ export function activate(context: vscode.ExtensionContext) {
       if (e.affectsConfiguration("deepseekUsage.statusBarFormat")) {
         renderStatusBar();
       }
+      if (e.affectsConfiguration("deepseekUsage.lowBalanceWarnCny")) {
+        renderStatusBar();
+      }
       if (e.affectsConfiguration("deepseekUsage.pricing")) {
         applyPricingConfig();
         resetAggregation();
@@ -108,7 +118,7 @@ function getCfg(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("deepseekUsage");
 }
 
-type StatusFormat = "full" | "cost" | "tokens" | "totalT" | "totalCost";
+type StatusFormat = "full" | "cost" | "tokens" | "totalT" | "totalCost" | "balance";
 function getStatusFormat(): StatusFormat {
   return getCfg().get<StatusFormat>("statusBarFormat", "full");
 }
@@ -163,6 +173,7 @@ function poll() {
     lastDayStart = dayStart;
   }
   for (const rec of tailReader.readNew()) addRecord(stats, rec);
+  readLatestBalance();
   renderStatusBar();
 }
 
@@ -173,7 +184,22 @@ function renderStatusBar() {
   const fmt = getStatusFormat();
   const cur = getCurrency();
   const rate = getCnyPerUsd();
-  if (s.t === 0 && s.cost === 0) {
+
+  const lowThreshold = getCfg().get<number>("lowBalanceWarnCny", 10);
+  const balanceVal = latestBalance?.totalCny ?? null;
+  const balanceLow =
+    balanceVal !== null && lowThreshold > 0 && balanceVal < lowThreshold;
+
+  if (fmt === "balance") {
+    statusBar.text =
+      balanceVal !== null
+        ? `$(credit-card)${balanceLow ? " $(warning)" : ""} ${fmtMoney(
+            balanceVal,
+            cur,
+            rate,
+          )}`
+        : `$(credit-card) ${cur === "usd" ? "$" : "￥"}--`;
+  } else if (s.t === 0 && s.cost === 0) {
     statusBar.text = `$(credit-card) ${cur === "usd" ? "$" : "￥"}--/--  --/--`;
   } else {
     const costText = moneyPair(s.cost, s.chCost, cur, rate);
@@ -190,6 +216,19 @@ function renderStatusBar() {
       statusBar.text = `$(credit-card) ${costText}  ${tokText}`;
     }
   }
+
+  if (fmt === "balance" && balanceLow) {
+    statusBar.backgroundColor = new vscode.ThemeColor(
+      "statusBarItem.warningBackground",
+    );
+  } else {
+    statusBar.backgroundColor = undefined;
+  }
+
+  const balText =
+    balanceVal !== null
+      ? `${t("balance")} ${fmtMoney(balanceVal, cur, rate)}`
+      : `${t("balance")} ${t("balanceNone")}`;
   statusBar.tooltip = new vscode.MarkdownString(
     `${t("todayBeijing")}\n\n` +
       `${t("cost")} ${fmtMoney(s.cost, cur, rate)} / ${t("cacheHit")} ${fmtMoney(
@@ -198,7 +237,8 @@ function renderStatusBar() {
         rate,
       )}\n` +
       `${t("totalToken")} ${fmtTok(s.t)} / ${t("cacheHit")} ${fmtTok(s.ch)}\n` +
-      `${t("input")} ${fmtTok(s.p)} / ${t("output")} ${fmtTok(s.c)}\n\n` +
+      `${t("input")} ${fmtTok(s.p)} / ${t("output")} ${fmtTok(s.c)}\n` +
+      `${balText}\n\n` +
       `${t("proxy")}: ${running ? t("proxyRunning") : t("proxyStopped")}\n` +
       `${t("clickForDetails")}`,
   );
@@ -212,10 +252,40 @@ function fmtTok(n: number): string {
 }
 
 function showStats() {
+  readLatestBalance();
   openDetailPanel((range) => {
     const all = readAllRecords();
-    return { ...aggregateRange(all, range), peakNow: isPeakBeijing(new Date()) };
+    return {
+      ...aggregateRange(all, range),
+      peakNow: isPeakBeijing(new Date()),
+      balance: latestBalance,
+    };
   });
+}
+
+/** 读取余额文件里最新一条（代理按请求顺带写入）。 */
+function readLatestBalance(): void {
+  if (!balancePath || !fs.existsSync(balancePath)) {
+    latestBalance = null;
+    return;
+  }
+  const lines = fs.readFileSync(balancePath, "utf8").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const s = lines[i].trim();
+    if (!s) continue;
+    try {
+      const j = JSON.parse(s);
+      latestBalance = {
+        totalCny: typeof j.totalCny === "number" ? j.totalCny : null,
+        isAvailable: j.isAvailable === true,
+        ts: typeof j.ts === "string" ? j.ts : "",
+      };
+      return;
+    } catch {
+      // 损坏行跳过
+    }
+  }
+  latestBalance = null;
 }
 
 /** 直接读整个 JSONL（明细面板按需全扫，独立于增量轮询）。 */
@@ -244,6 +314,7 @@ async function showStatusFormatMenu() {
     { id: "tokens", label: `${check("tokens")}${t("statusFormatTokens")}`, desc: "totalT/cacheT" },
     { id: "totalT", label: `${check("totalT")}${t("statusFormatTotalT")}`, desc: "totalT" },
     { id: "totalCost", label: `${check("totalCost")}${t("statusFormatTotalCost")}`, desc: "cost" },
+    { id: "balance", label: `${check("balance")}${t("statusFormatBalance")}`, desc: "￥balance" },
     { id: "details", label: `$(list-unordered) ${t("openDetails")}`, desc: "" },
   ];
   const picked = await vscode.window.showQuickPick(
@@ -308,6 +379,8 @@ async function startProxy(context: vscode.ExtensionContext) {
         String(port),
         "--jsonl",
         jsonlPath,
+        "--balance",
+        balancePath,
         "--pricing",
         pricingJson,
         "--currency",

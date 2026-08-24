@@ -19,6 +19,7 @@ export interface ModelRow {
 
 export interface DetailData extends RangeStats {
   peakNow: boolean;
+  balance: { totalCny: number | null; isAvailable: boolean; ts: string } | null;
 }
 
 const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
@@ -98,6 +99,25 @@ function render(
   const peakBadge = data.peakNow
     ? `<span class="badge peak">${t("peakBadge")}</span>`
     : `<span class="badge off">${t("offpeakBadge")}</span>`;
+
+  const bal = data.balance;
+  const balanceHtml = (() => {
+    if (!bal || bal.totalCny === null) {
+      return `<div class="banner">${t("balance")}: ${t("balanceNone")}</div>`;
+    }
+    const lowThreshold = vscode.workspace
+      .getConfiguration("deepseekUsage")
+      .get<number>("lowBalanceWarnCny", 10);
+    const low = lowThreshold > 0 && bal.totalCny < lowThreshold;
+    const when = bal.ts ? ` · ${beijingTime(bal.ts)}` : "";
+    return `<div class="banner${low ? " warn" : ""}">${t(
+      "balance",
+    )}: ${money(bal.totalCny)}${when}${low ? " · " + t("balanceLow") : ""}</div>`;
+  })();
+  const err402 =
+    s.count402 > 0
+      ? `<div class="banner warn">${t("err402", { n: s.count402 })}</div>`
+      : "";
 
   const rangeBtn = (k: RangeKey) =>
     `<button class="seg${k === range ? " active" : ""}" data-range="${k}">${t(
@@ -182,6 +202,8 @@ function render(
   .badge { font-size: 11px; padding: 1px 8px; border-radius: 9px; }
   .badge.peak { background: rgba(255,90,90,.18); color: #ff6b6b; }
   .badge.off { background: rgba(80,220,140,.16); color: #3fce6b; }
+  .banner { padding: 6px 10px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); margin-bottom: 10px; font-size: 12px; }
+  .banner.warn { background: rgba(255,90,90,.12); border-color: #ff6b6b; color: #ff6b6b; }
   .chart { display: flex; align-items: flex-end; gap: 2px; height: 140px; overflow-x: auto; padding-bottom: 18px; }
   .bar-col { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; min-width: 8px; }
   .bar { background: var(--vscode-charts-blue); border-radius: 2px 2px 0 0; width: 100%; }
@@ -199,6 +221,9 @@ function render(
     <span class="spacer"></span>
     <button class="btn" id="export">${t("exportCsv")}</button>
   </h1>
+
+  ${balanceHtml}
+  ${err402}
 
   <div class="toolbar">
     ${RANGE_KEYS.map(rangeBtn).join("")}

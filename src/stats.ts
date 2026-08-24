@@ -154,6 +154,7 @@ export interface RangeStats {
   cost: number;
   chCost: number;
   count: number;
+  count402: number; // 区间内 402（余额不足）请求数
   models: { name: string; m: ModelStats }[];
   recent: UsageRecord[]; // 区间内最近 60 条（新→旧）
   rows: UsageRecord[]; // 区间内全部（新→旧），供 CSV 导出
@@ -176,6 +177,7 @@ export function aggregateRange(
   const modelMap = new Map<string, ModelStats>();
   const rows: UsageRecord[] = [];
   const bucketMap = new Map<number, TimeBucket>();
+  let count402 = 0;
 
   const bucketLabel = (ms: number) => {
     const d = new Date(ms + BEIJING_OFFSET_MS);
@@ -188,6 +190,7 @@ export function aggregateRange(
   for (const r of records) {
     const tsMs = Date.parse(r.ts);
     if (!Number.isFinite(tsMs) || tsMs < start || tsMs >= end) continue;
+    if (r.status === 402) count402 += 1;
     const c = costsAt(r, tsMs);
 
     stats.p += c.pt;
@@ -235,6 +238,7 @@ export function aggregateRange(
     cost: stats.cost,
     chCost: stats.chCost,
     count: rows.length,
+    count402,
     models: [...modelMap.entries()].map(([name, m]) => ({ name, m })),
     recent: rows.slice(0, 60),
     rows,

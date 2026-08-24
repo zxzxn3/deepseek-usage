@@ -1,11 +1,11 @@
 {
-  "description": "Local proxy that intercepts real DeepSeek requests and shows today's cost and token usage in the status bar (Beijing time).",
+  "description": "Local proxy that intercepts real DeepSeek requests from Copilot Chat and shows today's cost, token usage, and balance in the status bar (Beijing time).",
   "command.showStats": "DeepSeek Usage: Today's Details",
   "command.toggleProxy": "DeepSeek Usage: Toggle Proxy",
   "command.proxyStart": "DeepSeek Usage: Start Proxy",
   "command.proxyStop": "DeepSeek Usage: Stop Proxy",
   "command.statusBarFormat": "DeepSeek Usage: Status Bar Format",
-  "config.statusBarFormat": "Status bar display format: full (cost + tokens), cost, tokens, totalT (total tokens only), or totalCost (total cost only).",
+  "config.statusBarFormat": "Status bar display format: full (cost + tokens), cost, tokens, totalT (total tokens only), totalCost (total cost only), or balance (account balance).",
   "config.title": "DeepSeek Usage",
   "config.port": "Local proxy listen port.",
   "config.autoStart": "Automatically start the proxy when VS Code launches.",
@@ -13,5 +13,6 @@
   "config.pollIntervalSeconds": "Status bar refresh interval (seconds).",
   "config.pricing": "Per-model price overrides (yuan per million tokens): an object keyed by model, each value {cache_hit, cache_miss, output}. Merged over the built-in defaults.",
   "config.currency": "Cost display currency: cny (￥) or usd ($).",
-  "config.cnyPerUsd": "Fallback CNY per 1 USD for USD display, used when the live rate can't be fetched from the API."
+  "config.cnyPerUsd": "Fallback CNY per 1 USD for USD display, used when the live rate can't be fetched from the API.",
+  "config.lowBalanceWarnCny": "Account balance (yuan) below which the status bar shows a low-balance warning. Set to 0 to disable."
 }

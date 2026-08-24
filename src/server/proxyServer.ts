@@ -3,16 +3,21 @@
 // R5 hook：log 回调即"可选终端"预留点。
 import * as http from "http";
 import * as https from "https";
-import { appendRecord, UsageRecord } from "../jsonl";
+import { appendBalance, appendRecord, UsageRecord } from "../jsonl";
 import { SseUsageExtractor } from "./sse";
 import { fmtRow } from "./termfmt";
 
 const DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
 const STREAM_IDLE_TIMEOUT_MS = 600 * 1000; // 流式等下一个字节的最大空闲时间
+const BALANCE_URL =
+  process.env.DEEPSEEK_BALANCE_URL ?? "https://api.deepseek.com/user/balance";
+const BALANCE_THROTTLE_MS = 60 * 1000; // 余额查询节流：一分钟最多一次（402 时强制立即查）
+let lastBalanceAt = 0;
 
 export interface ProxyServerOptions {
   port: number;
   jsonlPath: string;
+  balancePath?: string;
   apiUrl?: string;
   log?: (line: string) => void;
 }
@@ -20,10 +25,10 @@ export interface ProxyServerOptions {
 export function startProxyServer(
   opts: ProxyServerOptions,
 ): Promise<http.Server> {
-  const { port, jsonlPath, log = console.log } = opts;
+  const { port, jsonlPath, balancePath, log = console.log } = opts;
   const apiUrl = opts.apiUrl ?? process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL;
   const server = http.createServer((req, res) => {
-    void handle(req, res, apiUrl, jsonlPath, log);
+    void handle(req, res, apiUrl, jsonlPath, balancePath, log);
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -80,11 +85,78 @@ function recordAndLog(
   );
 }
 
+// 顺带查账户余额（方案 A）：用本次请求在手的 key，不落盘 key。
+function queryBalance(
+  auth: string,
+  balancePath: string,
+  log: (s: string) => void,
+): void {
+  const client = BALANCE_URL.startsWith("https:") ? https : http;
+  let req: http.ClientRequest;
+  try {
+    req = client.get(BALANCE_URL, { headers: { Authorization: auth } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        let totalCny: number | null = null;
+        let isAvailable = false;
+        try {
+          const j = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          isAvailable = j.is_available === true;
+          const infos: any[] = Array.isArray(j.balance_infos)
+            ? j.balance_infos
+            : [];
+          const cny = infos.find(
+            (i) => String(i?.currency ?? "").toUpperCase() === "CNY",
+          );
+          const pick = cny ?? infos[0];
+          if (pick && typeof pick.total_balance === "string") {
+            const n = Number(pick.total_balance);
+            if (Number.isFinite(n)) totalCny = n;
+          }
+        } catch {
+          // 解析失败忽略
+        }
+        appendBalance(balancePath, {
+          ts: new Date().toISOString(),
+          totalCny,
+          isAvailable,
+        });
+        log(
+          `[balance] ${totalCny === null ? "n/a" : "￥" + totalCny}${
+            isAvailable ? "" : " (unavailable)"
+          }`,
+        );
+      });
+    });
+  } catch {
+    return;
+  }
+  req.on("error", () => {
+    /* 忽略：余额查询失败不阻断转发 */
+  });
+  req.setTimeout(5000, () => req.destroy());
+}
+
+function maybeQueryBalance(
+  auth: string,
+  balancePath: string | undefined,
+  force: boolean,
+  log: (s: string) => void,
+): void {
+  if (!balancePath || !auth) return;
+  const now = Date.now();
+  if (!force && now - lastBalanceAt < BALANCE_THROTTLE_MS) return;
+  lastBalanceAt = now;
+  queryBalance(auth, balancePath, log);
+}
+
 async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   apiUrl: string,
   jsonlPath: string,
+  balancePath: string | undefined,
   log: (s: string) => void,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -122,7 +194,7 @@ async function handle(
   const model = payload.model ?? "deepseek-v4-flash";
 
   if (payload.stream) {
-    await handleStream(req, res, apiUrl, jsonlPath, log, model, payload);
+    await handleStream(req, res, apiUrl, jsonlPath, balancePath, log, model, payload);
     return;
   }
 
@@ -141,6 +213,7 @@ async function handle(
       // 无 usage
     }
     recordAndLog(jsonlPath, log, model, u, false, up.status);
+    maybeQueryBalance(auth, balancePath, up.status === 402, log);
     res.writeHead(up.status, {
       "Content-Type": up.headers.get("content-type") ?? "application/json",
     });
@@ -161,6 +234,7 @@ function handleStream(
   res: http.ServerResponse,
   apiUrl: string,
   jsonlPath: string,
+  balancePath: string | undefined,
   log: (s: string) => void,
   model: string,
   payload: any,
@@ -233,6 +307,7 @@ function handleStream(
             status,
             err.toString("utf8").slice(0, 200),
           );
+          maybeQueryBalance(auth, balancePath, status === 402, log);
           finish();
         });
         return;
@@ -280,6 +355,7 @@ function handleStream(
           }
         }
         recordAndLog(jsonlPath, log, model, extractor.usage, true, status);
+        maybeQueryBalance(auth, balancePath, false, log);
         finish();
       });
 

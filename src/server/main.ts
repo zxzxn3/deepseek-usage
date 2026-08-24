@@ -10,6 +10,7 @@ function parseArgs(argv: string[]): Record<string, string | undefined> {
     const a = argv[i];
     if (a === "--port") args.port = argv[++i];
     else if (a === "--jsonl") args.jsonl = argv[++i];
+    else if (a === "--balance") args.balance = argv[++i];
     else if (a === "--pricing") args.pricing = argv[++i];
     else if (a === "--currency") args.currency = argv[++i];
     else if (a === "--rate") args.rate = argv[++i];
@@ -35,7 +36,11 @@ async function main() {
   if (args.currency === "usd" || args.currency === "cny") {
     setCurrency(args.currency, Number(args.rate ?? 6.74) || 6.74);
   }
-  const server = await startProxyServer({ port, jsonlPath: jsonl });
+  const server = await startProxyServer({
+    port,
+    jsonlPath: jsonl,
+    balancePath: args.balance ?? undefined,
+  });
   const hdr = makeHdr();
   console.log(`proxy started: http://127.0.0.1:${port}  jsonl=${jsonl}`);
   console.log(hdr);

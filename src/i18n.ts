@@ -71,6 +71,17 @@ const dict: Record<string, { en: string; zh: string }> = {
   exportCsv: { en: "Export CSV", zh: "导出 CSV" },
   exportDone: { en: "Exported {n} rows → {path}", zh: "已导出 {n} 行 → {path}" },
   requests: { en: "Requests", zh: "请求数" },
+  balance: { en: "Balance", zh: "余额" },
+  balanceNone: {
+    en: "not queried yet (sent after the next request)",
+    zh: "尚未查询（下次请求后获取）",
+  },
+  balanceLow: { en: "low", zh: "余额不足" },
+  err402: {
+    en: "{n}× HTTP 402 — insufficient balance detected",
+    zh: "{n} 次 HTTP 402 —— 检测到余额不足",
+  },
+  statusFormatBalance: { en: "Balance", zh: "余额" },
 };
 
 /** Language follows the VS Code display language (Chinese interface → Chinese, otherwise English). */

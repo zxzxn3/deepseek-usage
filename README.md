@@ -1,7 +1,7 @@
-<h1 align="center">DeepSeek Usage</h1>
+<h1 align="center">DeepSeek Usage for Copilot Chat</h1>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=zxzxo.deepseek-usage"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="Install from VS Code Marketplace"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=zxzxo.deepseek-usage-copilot"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="Install from VS Code Marketplace"></a>
   <br/>
   <img src="https://img.shields.io/github/license/zxzxn3/deepseek-usage?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/github/v/release/zxzxn3/deepseek-usage?style=for-the-badge&label=Version" alt="Version" />
@@ -42,8 +42,10 @@ The status bar shows today's totals (Beijing time) and updates automatically:
 
 - **Cost** — `￥9.8626/4.4522` total / cache-hit cost
 - **Tokens** — `91.69M/89.04M` total / cached tokens
+- **Balance** — `￥xx.xx` account balance, refreshed by the proxy on each request
 - **Peak pricing aware** — costs double during peak hours (Beijing weekdays 09:00–12:00 and 14:00–18:00)
-- **Five display formats** — click the status bar to pick: `full` (cost + tokens), `cost`, `tokens`, `totalT` (total tokens only), or `totalCost` (total cost only)
+- **Six display formats** — click the status bar to pick: `full` (cost + tokens), `cost`, `tokens`, `totalT` (total tokens only), `totalCost` (total cost only), or `balance`
+- **Low-balance warning** — the status bar turns amber when the balance drops below `deepseekUsage.lowBalanceWarnCny`
 
 ### Detail panel
 
@@ -63,6 +65,14 @@ A local OpenAI-compatible proxy that forwards `chat/completions` with real strea
 - **SSE-safe** — handles usage chunks split across network boundaries
 - **Disconnect-safe** — if the client cancels, the proxy keeps reading upstream to capture the final `usage` (aborted generations still cost money and are still counted)
 - **Auto-start** — starts with VS Code (`autoStart`) and takes over `deepseek-copilot.baseUrl`, restoring it when stopped
+
+### Account balance (on-request)
+
+The proxy already holds your API key on every forwarded request, so it also queries [`/user/balance`](https://api.deepseek.com/user/balance) along the way and shows your balance in the status bar and the panel:
+
+- **No extra key setup** — the key is used in-flight and never stored
+- **Throttled** — at most once per minute; forced immediately after an HTTP 402
+- **402 awareness** — insufficient-balance responses are surfaced in the detail panel, together with a fresh balance query
 
 ### Configurable pricing & currency
 
@@ -97,7 +107,7 @@ Data is stored as one JSON line per request in VS Code's global storage: raw fac
 
 ### Installation
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=zxzxo.deepseek-usage) (or build from source below).
+1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=zxzxo.deepseek-usage-copilot) (or build from source below).
 2. Reload VS Code. The proxy starts automatically.
 
 ### Usage
@@ -114,10 +124,11 @@ Data is stored as one JSON line per request in VS Code's global storage: raw fac
 | `deepseekUsage.autoStart` | `true` | Start the proxy automatically when VS Code launches |
 | `deepseekUsage.manageBaseUrl` | `true` | Point `deepseek-copilot.baseUrl` at the proxy while running, and restore it when stopped |
 | `deepseekUsage.pollIntervalSeconds` | `10` | Status bar refresh interval (seconds, min 2) |
-| `deepseekUsage.statusBarFormat` | `full` | Status bar format: `full` / `cost` / `tokens` / `totalT` / `totalCost` |
+| `deepseekUsage.statusBarFormat` | `full` | Status bar format: `full` / `cost` / `tokens` / `totalT` / `totalCost` / `balance` |
 | `deepseekUsage.pricing` | `{}` | Per-model price overrides (yuan / 1M tokens): `{"deepseek-v4-flash": {"cache_hit": 0.05, "cache_miss": 1.5, "output": 4.5}}` |
 | `deepseekUsage.currency` | `cny` | Cost currency: `cny` (￥) or `usd` ($) |
 | `deepseekUsage.cnyPerUsd` | `6.74` | Fallback CNY-per-USD rate, used when the live rate can't be fetched |
+| `deepseekUsage.lowBalanceWarnCny` | `10` | Account balance (yuan) below which the status bar warns; `0` disables |
 
 **Pricing model** — built-in defaults + your overrides; peak = off-peak × 2 during Beijing weekdays 09:00–12:00 and 14:00–18:00. USD display uses a live rate (fetched from a public API, refreshed every 6 hours) and falls back to `cnyPerUsd` offline.
 
@@ -147,7 +158,7 @@ npm run smoke
 powershell -ExecutionPolicy Bypass -File .\package.ps1
 
 # install / reinstall (--force overwrites the same version)
-code --install-extension .\deepseek-usage.vsix --force
+code --install-extension .\deepseek-usage-copilot.vsix --force
 ```
 
 ## License

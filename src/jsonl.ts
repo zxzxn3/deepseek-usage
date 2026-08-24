@@ -19,6 +19,18 @@ export function appendRecord(jsonlPath: string, rec: UsageRecord): void {
   fs.appendFileSync(jsonlPath, JSON.stringify(rec) + "\n", "utf8");
 }
 
+/** 账户余额记录（代理按请求顺带查询 /user/balance 后写，扩展读取最新一条）。 */
+export interface BalanceRecord {
+  ts: string; // UTC ISO
+  totalCny: number | null; // CNY 总余额；查询失败为 null
+  isAvailable: boolean;
+}
+
+/** 追加一条余额（供代理子进程写，独立于 usage 文件）。 */
+export function appendBalance(balancePath: string, rec: BalanceRecord): void {
+  fs.appendFileSync(balancePath, JSON.stringify(rec) + "\n", "utf8");
+}
+
 /**
  * 增量尾部读取器：记住已读字节偏移，只解析新追加的完整行。
  * 用于扩展轮询——代理写、扩展读，互不干扰。

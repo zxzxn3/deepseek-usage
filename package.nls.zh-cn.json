@@ -1,11 +1,11 @@
 {
-  "description": "本地代理拦截 DeepSeek 真实请求，状态栏实时显示今日费用与 token 用量（北京时间）。",
+  "description": "本地代理拦截 Copilot Chat 发出的 DeepSeek 真实请求，状态栏实时显示今日费用、token 用量与账户余额（北京时间）。",
   "command.showStats": "DeepSeek Usage: 今日明细",
   "command.toggleProxy": "DeepSeek Usage: 切换代理",
   "command.proxyStart": "DeepSeek Usage: 启动代理",
   "command.proxyStop": "DeepSeek Usage: 停止代理",
   "command.statusBarFormat": "DeepSeek Usage: 状态栏格式",
-  "config.statusBarFormat": "状态栏显示格式：full（费用+token）、cost（仅费用）、tokens（仅token）、totalT（仅总token）或 totalCost（仅总cost）。",
+  "config.statusBarFormat": "状态栏显示格式：full（费用+token）、cost（仅费用）、tokens（仅token）、totalT（仅总token）、totalCost（仅总cost）或 balance（账户余额）。",
   "config.title": "DeepSeek Usage",
   "config.port": "本地代理监听端口。",
   "config.autoStart": "VS Code 启动时自动拉起代理。",
@@ -13,5 +13,6 @@
   "config.pollIntervalSeconds": "状态栏刷新间隔（秒）。",
   "config.pricing": "按模型的定价覆盖（元/百万 token）：以模型名为键的对象，值 {cache_hit, cache_miss, output}，合并到默认价上。",
   "config.currency": "费用显示货币：cny（￥）或 usd（$）。",
-  "config.cnyPerUsd": "1 美元兑人民币汇率的兜底值（自动从公开 API 拉取失败时用）。"
+  "config.cnyPerUsd": "1 美元兑人民币汇率的兜底值（自动从公开 API 拉取失败时用）。",
+  "config.lowBalanceWarnCny": "账户余额（元）低于该值时状态栏显示低余额警告；设为 0 关闭。"
 }
