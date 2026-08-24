@@ -13,8 +13,6 @@
 
 This extension puts a lightweight local proxy between Copilot Chat (via the [DeepSeek V4 for Copilot Chat](https://marketplace.visualstudio.com/items?itemName=Vizards.deepseek-v4-for-copilot) extension) and the DeepSeek API. It captures the **real `usage` object from every response** and turns it into today's cost and token totals — Beijing time, peak pricing included.
 
-> **This is an unofficial third-party tool.** Not affiliated with or endorsed by DeepSeek (深度求索).
-
 ## Why this extension?
 
 - **Real numbers, not estimates.** It reads the `usage` DeepSeek returns on every request (`prompt_tokens` / `completion_tokens` / cache tokens) and prices it with the official rates. The totals match your DeepSeek bill — no heuristic token counting.
