@@ -1,91 +1,55 @@
-# DeepSeek token 用量记录
+# DeepSeek Usage
 
-你在 **VS Code Copilot Chat**（通过 `Vizards/deepseek-v4-for-copilot` 扩展）里用 **DeepSeek API**。
-本项目用一个**本地透明代理**拦截真实请求，把每次响应的**精确 usage** 记进 SQLite，并在终端 / 浮动 HUD 实时显示：
+在 VS Code Copilot Chat（通过 `Vizards/deepseek-v4-for-copilot` 扩展）里使用 DeepSeek API 时，用本地代理拦截真实请求，实时统计今日费用与 token 用量。
 
-```
-token_usage/
-  pricing.py  官方定价表 + 费用计算
-  termfmt.py  终端实时输出：表格行 / 底部统计栏渲染
-  proxy.py    本地代理：转发请求 → 精确 usage → usage.db + 终端实时输出
-  hud.py      浮动 HUD：永远置顶小窗实时显示用量
-  usage.db    SQLite（自动生成）
-```
+- **状态栏**：实时显示费用 / 缓存费用 + 总 token / 缓存 token（北京时间，含高峰 ×2），点击可切换显示格式
+- **明细面板**：区间（今天 / 周 / 月 / 全部）汇总、按时间柱状图（今天按小时）、按模型分表、最近请求、导出 CSV
+- **代理**：本地 OpenAI 兼容代理，真流式透传（chunked / SSE / 断连续读）；`autoStart` 自动接管 `deepseek-copilot.baseUrl`，停止时恢复
+- **可配置**：定价覆盖、货币（cny / usd，汇率自动拉取）、状态栏格式、轮询间隔、界面语言（跟随 VS Code）
 
-## 依赖
+## 目录
 
-- Python 3.10+（本项目 `.venv` 已是 3.12）
-- 全部**标准库**（含 `tkinter`，Windows 自带）
+- `extension/` — VS Code 扩展（TypeScript + esbuild，运行时零依赖）
+- 数据存于 VS Code 全局存储的 `usage.jsonl`：一行一次请求，只存原始事实（UTC 时间戳 + tokens），费用在展示层按定价现算
 
-## 使用（需要 key）
+## 构建与调试
 
 ```powershell
-$env:DEEPSEEK_API_KEY = "sk-..."          # 在终端设置，别发 AI
-
-# 验证 + 记录一次
-& d:\Flow-1.5\.venv\Scripts\python.exe proxy.py check --prompt "hi"
-
-# 启动拦截代理（事件触发式：来请求才记账）
-& d:\Flow-1.5\.venv\Scripts\python.exe proxy.py proxy --port 8080
-
-# 查看最近记录
-& d:\Flow-1.5\.venv\Scripts\python.exe proxy.py list --limit 20
-
-# 浮动 HUD（置顶小窗，2s 刷新）
-& d:\Flow-1.5\.venv\Scripts\python.exe hud.py
+cd extension
+npm install
+npm run compile     # 或 npm run watch（开发热重建）
+npm run typecheck   # 类型检查
+npm run smoke       # 测试
 ```
 
-> 代理可随 VS Code 自启：`.vscode/tasks.json` 的「DeepSeek usage proxy（自启）」任务（首次需授权自动任务）。
+F5 打开扩展开发宿主调试；或打包后安装：
 
-**接入 Copilot**：把扩展的 `baseUrl` 指向代理，则每次真实聊天请求都会落库：
-```json
-"deepseek-copilot.baseUrl": "http://127.0.0.1:8080"
+```powershell
+npx @vscode/vsce package
+code --install-extension deepseek-usage-*.vsix
 ```
 
-### 代理终端输出（表头 + 分隔 + 表格行 + 底部统计栏）
+## 配置（settings.json）
 
-启动时打印表头与分隔行（并在横幅里说明模型一次）；每记录一次请求，追加一行；TTY 下最后一行是**底部统计栏**（随每次请求刷新）：
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `deepseekUsage.port` | `8080` | 代理监听端口 |
+| `deepseekUsage.autoStart` | `true` | VS Code 启动自动拉起代理 |
+| `deepseekUsage.manageBaseUrl` | `true` | 代理运行时自动接管/停止时恢复 `deepseek-copilot.baseUrl` |
+| `deepseekUsage.pollIntervalSeconds` | `10` | 状态栏刷新间隔（秒，下限 2） |
+| `deepseekUsage.statusBarFormat` | `full` | 状态栏格式：`full`/`cost`/`tokens`/`totalT`/`totalCost` |
+| `deepseekUsage.pricing` | `{}` | 按模型定价覆盖（元 / 百万 token）：`{"deepseek-v4-flash": {"cache_hit":0.05,"cache_miss":1.5,"output":4.5}}` |
+| `deepseekUsage.currency` | `cny` | 费用货币：`cny`（￥）/ `usd`（$） |
+| `deepseekUsage.cnyPerUsd` | `6.74` | 汇率兜底值（自动从公开 API 拉取失败时用） |
 
-```
- 时间       输入/输出    token总/缓存    费用总/缓存      状态
--------------------------------------------------------------------
-03:37:42  111.4k/799  112.2k/109.8k  ￥0.0114/0.0055  s200
-03:38:55  112.8k/2.2k  115.0k/111.4k  ￥0.0176/0.0056  s200
-```
+定价说明：内置默认价 + 用户覆盖；高峰价 = 非高峰 ×2（北京时间周一~五 9-12、14-18）；美元显示用实时汇率，拉不到才用 `cnyPerUsd`。
 
-底部统计栏（当天累计，本地时区，与行同格式）：
+## 命令
 
-```
-2026-08-24  33.41M/133.9k  33.55M/33.30M  ￥2.7825/1.5870  [高峰 ×2]
-```
+- `DeepSeek Usage: Today's Details` — 打开今日明细面板
+- `DeepSeek Usage: Toggle Proxy` — 启动 / 停止代理（命令面板按运行状态动态显示）
+- `DeepSeek Usage: Status Bar Format` — 状态栏格式选择
 
-| 字段 | 含义 |
-| --- | --- |
-| `输入/输出` | p/c：prompt / completion tokens（`111.4k/799` = 输入 111.4k、输出 799） |
-| `token总/缓存` | t/cH：总 token / 缓存命中 token（`112.2k/109.8k`） |
-| `费用总/缓存` | ￥本次总费用 / 缓存命中部分费用（`￥0.0114/0.0055`） |
-| `s`/`o` + 状态码 | 流式 / 非流式 + HTTP 状态码 |
-| — | 模型在启动横幅说明一次（透传客户端请求，默认 `deepseek-v4-flash`），行内省略 |
+## License
 
-- token 数缩写：`<1000` 原样、`<1M` 一位小数 k、以上两位小数 M。
-- 费用取 4 位小数；统计栏与各行相加的 ±0.1k 视觉差属正常（行各自舍入、统计栏对精确值只舍一次）。
-- 非 TTY（重定向/管道）时自动退化为纯追加，不打 ANSI。
-- TTY 下带颜色：状态码 2xx 绿 / 4xx·5xx·0 红，费用黄色，错误行红色。
-- 费用用 `pricing` 计算：高峰（北京时间周一~五 9-12、14-18）×2，其余空闲价；缓存命中率越高越省钱。
-- 统计栏末尾显示**当前计价模式**：`[高峰 ×2]`（红）/ `[空闲]`（绿），按北京时间判断（只反映现在，不含当天聚合）。
-
-## pricing.py（共用）
-
-- `PRICING`：官方定价表（2026-08，含缓存命中/未命中/输出）
-- `cost_from_usage`：精确 usage 计费
-
-## Node 扩展（extension/）
-
-正在进行中的 Node/TypeScript 版 VS Code 扩展（`extension/`，分支 `feature/node-rewrite`）：状态栏实时显示今日费用 / token（北京时间 + 高峰），今日明细 Webview 面板（汇总 + 按模型 + 最近请求），代理日志进输出面板，多语言（默认英文）。
-
-**已知边界**：DeepSeek Copilot 的**视觉（图片）功能**走独立的 `deepseek-copilot.visionProxy.config`（自带 `url` / `apiType` / `apiKey`，存在 globalState），**与 `baseUrl` 无关**——因此视觉请求默认不经过本代理、不计入用量统计。
-
-## 说明
-
-- 权威精确值始终以 **platform.deepseek.com 仪表板**为准。
-
+MIT
