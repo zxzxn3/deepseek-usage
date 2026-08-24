@@ -37,79 +37,79 @@
   "contributes": {
     "commands": [
       {
-        "command": "deepseekUsage.showStats",
+        "command": "deepseekStatusBar.showStats",
         "title": "%command.showStats%"
       },
       {
-        "command": "deepseekUsage.toggleProxy",
+        "command": "deepseekStatusBar.toggleProxy",
         "title": "%command.toggleProxy%"
       },
       {
-        "command": "deepseekUsage.statusBarFormat",
+        "command": "deepseekStatusBar.statusBarFormat",
         "title": "%command.statusBarFormat%"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "deepseekUsage.toggleProxy",
+          "command": "deepseekStatusBar.toggleProxy",
           "title": "%command.proxyStart%",
-          "when": "!deepseekUsage.proxyRunning"
+          "when": "!deepseekStatusBar.proxyRunning"
         },
         {
-          "command": "deepseekUsage.toggleProxy",
+          "command": "deepseekStatusBar.toggleProxy",
           "title": "%command.proxyStop%",
-          "when": "deepseekUsage.proxyRunning"
+          "when": "deepseekStatusBar.proxyRunning"
         }
       ]
     },
     "configuration": {
       "title": "%config.title%",
       "properties": {
-        "deepseekUsage.port": {
+        "deepseekStatusBar.port": {
           "type": "number",
           "default": 8080,
           "description": "%config.port%"
         },
-        "deepseekUsage.autoStart": {
+        "deepseekStatusBar.autoStart": {
           "type": "boolean",
           "default": true,
           "description": "%config.autoStart%"
         },
-        "deepseekUsage.manageBaseUrl": {
+        "deepseekStatusBar.manageBaseUrl": {
           "type": "boolean",
           "default": true,
           "description": "%config.manageBaseUrl%"
         },
-        "deepseekUsage.pollIntervalSeconds": {
+        "deepseekStatusBar.pollIntervalSeconds": {
           "type": "number",
           "default": 10,
           "minimum": 2,
           "description": "%config.pollIntervalSeconds%"
         },
-        "deepseekUsage.statusBarFormat": {
+        "deepseekStatusBar.statusBarFormat": {
           "type": "string",
           "enum": ["full", "cost", "tokens", "totalT", "totalCost", "balance"],
           "default": "full",
           "description": "%config.statusBarFormat%"
         },
-        "deepseekUsage.pricing": {
+        "deepseekStatusBar.pricing": {
           "type": "object",
           "default": {},
           "description": "%config.pricing%"
         },
-        "deepseekUsage.currency": {
+        "deepseekStatusBar.currency": {
           "type": "string",
           "enum": ["cny", "usd"],
           "default": "cny",
           "description": "%config.currency%"
         },
-        "deepseekUsage.cnyPerUsd": {
+        "deepseekStatusBar.cnyPerUsd": {
           "type": "number",
           "default": 6.74,
           "description": "%config.cnyPerUsd%"
         },
-        "deepseekUsage.lowBalanceWarnCny": {
+        "deepseekStatusBar.lowBalanceWarnCny": {
           "type": "number",
           "default": 10,
           "description": "%config.lowBalanceWarnCny%"

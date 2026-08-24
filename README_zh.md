@@ -55,7 +55,7 @@
 - **余额** —— `￥xx.xx` 账户余额，随每次请求由代理刷新
 - **高峰计费感知** —— 高峰时段（北京时间工作日 09:00–12:00、14:00–18:00）费用 ×2
 - **六种显示格式** —— 点击状态栏切换：`full`（费用+词元）、`cost`、`tokens`、`totalT`（仅总词元）、`totalCost`（仅总费用）或 `balance`（余额）
-- **低余额告警** —— 余额低于 `deepseekUsage.lowBalanceWarnCny` 时状态栏变琥珀色
+- **低余额告警** —— 余额低于 `deepseekStatusBar.lowBalanceWarnCny` 时状态栏变琥珀色
 
 ### 明细面板
 
@@ -134,15 +134,15 @@ Copilot Chat (DeepSeek V4 for Copilot)
 
 | 设置项 | 默认 | 说明 |
 |---|---|---|
-| `deepseekUsage.port` | `8080` | 本地代理监听端口 |
-| `deepseekUsage.autoStart` | `true` | VS Code 启动时自动拉起代理 |
-| `deepseekUsage.manageBaseUrl` | `true` | 运行期间把 `deepseek-copilot.baseUrl` 指向代理，停止时恢复 |
-| `deepseekUsage.pollIntervalSeconds` | `10` | 状态栏刷新间隔（秒，最小 2） |
-| `deepseekUsage.statusBarFormat` | `full` | 状态栏格式：`full` / `cost` / `tokens` / `totalT` / `totalCost` / `balance` |
-| `deepseekUsage.pricing` | `{}` | 按模型定价覆盖（元/百万词元）：`{"deepseek-v4-flash": {"cache_hit": 0.05, "cache_miss": 1.5, "output": 4.5}}` |
-| `deepseekUsage.currency` | `cny` | 费用货币：`cny`（￥）或 `usd`（$） |
-| `deepseekUsage.cnyPerUsd` | `6.74` | CNY 兑 USD 的兜底汇率（实时汇率拉取失败时用） |
-| `deepseekUsage.lowBalanceWarnCny` | `10` | 余额（元）低于该值时状态栏告警；`0` 关闭 |
+| `deepseekStatusBar.port` | `8080` | 本地代理监听端口 |
+| `deepseekStatusBar.autoStart` | `true` | VS Code 启动时自动拉起代理 |
+| `deepseekStatusBar.manageBaseUrl` | `true` | 运行期间把 `deepseek-copilot.baseUrl` 指向代理，停止时恢复 |
+| `deepseekStatusBar.pollIntervalSeconds` | `10` | 状态栏刷新间隔（秒，最小 2） |
+| `deepseekStatusBar.statusBarFormat` | `full` | 状态栏格式：`full` / `cost` / `tokens` / `totalT` / `totalCost` / `balance` |
+| `deepseekStatusBar.pricing` | `{}` | 按模型定价覆盖（元/百万词元）：`{"deepseek-v4-flash": {"cache_hit": 0.05, "cache_miss": 1.5, "output": 4.5}}` |
+| `deepseekStatusBar.currency` | `cny` | 费用货币：`cny`（￥）或 `usd`（$） |
+| `deepseekStatusBar.cnyPerUsd` | `6.74` | CNY 兑 USD 的兜底汇率（实时汇率拉取失败时用） |
+| `deepseekStatusBar.lowBalanceWarnCny` | `10` | 余额（元）低于该值时状态栏告警；`0` 关闭 |
 
 **计价模型** —— 内置默认价 + 你的覆盖；北京工作日 09:00–12:00、14:00–18:00 高峰 = 低谷 ×2。USD 显示使用实时汇率（公开 API，每 6 小时刷新），离线回退到 `cnyPerUsd`。
 

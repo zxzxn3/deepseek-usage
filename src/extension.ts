@@ -51,20 +51,20 @@ export function activate(context: vscode.ExtensionContext) {
   lastDayStart = beijingDayStartUtcMs(new Date());
 
   statusBar = vscode.window.createStatusBarItem(
-    "deepseekUsage.cost",
+    "deepseekStatusBar.cost",
     vscode.StatusBarAlignment.Right,
     100,
   );
-  statusBar.name = "DeepSeek Usage";
-  statusBar.command = "deepseekUsage.statusBarFormat";
+  statusBar.name = "DeepSeek Status Bar";
+  statusBar.command = "deepseekStatusBar.statusBarFormat";
   statusBar.show();
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("deepseekUsage.showStats", () => showStats()),
-    vscode.commands.registerCommand("deepseekUsage.toggleProxy", () =>
+    vscode.commands.registerCommand("deepseekStatusBar.showStats", () => showStats()),
+    vscode.commands.registerCommand("deepseekStatusBar.toggleProxy", () =>
       toggleProxy(context),
     ),
-    vscode.commands.registerCommand("deepseekUsage.statusBarFormat", () =>
+    vscode.commands.registerCommand("deepseekStatusBar.statusBarFormat", () =>
       showStatusFormatMenu(),
     ),
   );
@@ -78,23 +78,23 @@ export function activate(context: vscode.ExtensionContext) {
   // 轮询间隔配置变更时重建定时器
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("deepseekUsage.pollIntervalSeconds")) {
+      if (e.affectsConfiguration("deepseekStatusBar.pollIntervalSeconds")) {
         startPolling();
       }
-      if (e.affectsConfiguration("deepseekUsage.statusBarFormat")) {
+      if (e.affectsConfiguration("deepseekStatusBar.statusBarFormat")) {
         renderStatusBar();
       }
-      if (e.affectsConfiguration("deepseekUsage.lowBalanceWarnCny")) {
+      if (e.affectsConfiguration("deepseekStatusBar.lowBalanceWarnCny")) {
         renderStatusBar();
       }
-      if (e.affectsConfiguration("deepseekUsage.pricing")) {
+      if (e.affectsConfiguration("deepseekStatusBar.pricing")) {
         applyPricingConfig();
         resetAggregation();
         poll();
       }
       if (
-        e.affectsConfiguration("deepseekUsage.currency") ||
-        e.affectsConfiguration("deepseekUsage.cnyPerUsd")
+        e.affectsConfiguration("deepseekStatusBar.currency") ||
+        e.affectsConfiguration("deepseekStatusBar.cnyPerUsd")
       ) {
         renderStatusBar();
         if (getCurrency() === "usd") void refreshRate();
@@ -115,7 +115,7 @@ export function deactivate() {
 }
 
 function getCfg(): vscode.WorkspaceConfiguration {
-  return vscode.workspace.getConfiguration("deepseekUsage");
+  return vscode.workspace.getConfiguration("deepseekStatusBar");
 }
 
 type StatusFormat = "full" | "cost" | "tokens" | "totalT" | "totalCost" | "balance";
@@ -344,11 +344,11 @@ function toggleProxy(context: vscode.ExtensionContext) {
   }
 }
 
-/** 同步命令面板的 when 上下文（deepseekUsage.proxyRunning）。 */
+/** 同步命令面板的 when 上下文（deepseekStatusBar.proxyRunning）。 */
 function updateProxyContext() {
   void vscode.commands.executeCommand(
     "setContext",
-    "deepseekUsage.proxyRunning",
+    "deepseekStatusBar.proxyRunning",
     proxyProc !== null && !proxyProc.killed,
   );
 }

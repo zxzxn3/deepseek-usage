@@ -51,7 +51,7 @@ The status bar shows today's totals (Beijing time) and updates automatically:
 - **Balance** — `￥xx.xx` account balance, refreshed by the proxy on each request
 - **Peak pricing aware** — costs double during peak hours (Beijing weekdays 09:00–12:00 and 14:00–18:00)
 - **Six display formats** — click the status bar to pick: `full` (cost + tokens), `cost`, `tokens`, `totalT` (total tokens only), `totalCost` (total cost only), or `balance`
-- **Low-balance warning** — the status bar turns amber when the balance drops below `deepseekUsage.lowBalanceWarnCny`
+- **Low-balance warning** — the status bar turns amber when the balance drops below `deepseekStatusBar.lowBalanceWarnCny`
 
 ### Detail panel
 
@@ -130,15 +130,15 @@ Data is stored as one JSON line per request in VS Code's global storage: raw fac
 
 | Setting | Default | Description |
 |---|---|---|
-| `deepseekUsage.port` | `8080` | Local proxy listen port |
-| `deepseekUsage.autoStart` | `true` | Start the proxy automatically when VS Code launches |
-| `deepseekUsage.manageBaseUrl` | `true` | Point `deepseek-copilot.baseUrl` at the proxy while running, and restore it when stopped |
-| `deepseekUsage.pollIntervalSeconds` | `10` | Status bar refresh interval (seconds, min 2) |
-| `deepseekUsage.statusBarFormat` | `full` | Status bar format: `full` / `cost` / `tokens` / `totalT` / `totalCost` / `balance` |
-| `deepseekUsage.pricing` | `{}` | Per-model price overrides (yuan / 1M tokens): `{"deepseek-v4-flash": {"cache_hit": 0.05, "cache_miss": 1.5, "output": 4.5}}` |
-| `deepseekUsage.currency` | `cny` | Cost currency: `cny` (￥) or `usd` ($) |
-| `deepseekUsage.cnyPerUsd` | `6.74` | Fallback CNY-per-USD rate, used when the live rate can't be fetched |
-| `deepseekUsage.lowBalanceWarnCny` | `10` | Account balance (yuan) below which the status bar warns; `0` disables |
+| `deepseekStatusBar.port` | `8080` | Local proxy listen port |
+| `deepseekStatusBar.autoStart` | `true` | Start the proxy automatically when VS Code launches |
+| `deepseekStatusBar.manageBaseUrl` | `true` | Point `deepseek-copilot.baseUrl` at the proxy while running, and restore it when stopped |
+| `deepseekStatusBar.pollIntervalSeconds` | `10` | Status bar refresh interval (seconds, min 2) |
+| `deepseekStatusBar.statusBarFormat` | `full` | Status bar format: `full` / `cost` / `tokens` / `totalT` / `totalCost` / `balance` |
+| `deepseekStatusBar.pricing` | `{}` | Per-model price overrides (yuan / 1M tokens): `{"deepseek-v4-flash": {"cache_hit": 0.05, "cache_miss": 1.5, "output": 4.5}}` |
+| `deepseekStatusBar.currency` | `cny` | Cost currency: `cny` (￥) or `usd` ($) |
+| `deepseekStatusBar.cnyPerUsd` | `6.74` | Fallback CNY-per-USD rate, used when the live rate can't be fetched |
+| `deepseekStatusBar.lowBalanceWarnCny` | `10` | Account balance (yuan) below which the status bar warns; `0` disables |
 
 **Pricing model** — built-in defaults + your overrides; peak = off-peak × 2 during Beijing weekdays 09:00–12:00 and 14:00–18:00. USD display uses a live rate (fetched from a public API, refreshed every 6 hours) and falls back to `cnyPerUsd` offline.
 

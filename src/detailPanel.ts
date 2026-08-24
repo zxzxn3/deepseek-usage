@@ -33,11 +33,13 @@ function beijingTime(ts: string): string {
 
 function money(n: number): string {
   const cur = vscode.workspace
-    .getConfiguration("deepseekUsage")
+    .getConfiguration("deepseekStatusBar")
     .get<Currency>("currency", "cny");
   const rate =
     getLiveRate() ??
-    vscode.workspace.getConfiguration("deepseekUsage").get<number>("cnyPerUsd", 6.74);
+    vscode.workspace
+      .getConfiguration("deepseekStatusBar")
+      .get<number>("cnyPerUsd", 6.74);
   return fmtMoney(n, cur, rate);
 }
 
@@ -106,7 +108,7 @@ function render(
       return `<div class="banner">${t("balance")}: ${t("balanceNone")}</div>`;
     }
     const lowThreshold = vscode.workspace
-      .getConfiguration("deepseekUsage")
+      .getConfiguration("deepseekStatusBar")
       .get<number>("lowBalanceWarnCny", 10);
     const low = lowThreshold > 0 && bal.totalCny < lowThreshold;
     const when = bal.ts ? ` · ${beijingTime(bal.ts)}` : "";
@@ -330,7 +332,7 @@ function buildCsv(rows: UsageRecord[]): string {
 
 export function openDetailPanel(getData: (range: RangeKey) => DetailData): void {
   const panel = vscode.window.createWebviewPanel(
-    "deepseekUsage.detail",
+    "deepseekStatusBar.detail",
     t("panelTitle"),
     vscode.ViewColumn.One,
     { enableScripts: true, retainContextWhenHidden: true },
