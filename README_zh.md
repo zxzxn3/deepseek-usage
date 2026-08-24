@@ -17,6 +17,10 @@
 
 本扩展在 Copilot Chat（经 [DeepSeek V4 for Copilot Chat](https://marketplace.visualstudio.com/items?itemName=Vizards.deepseek-v4-for-copilot) 扩展）与 DeepSeek API 之间架了一个轻量本地代理，捕获**每个响应里真实的 `usage` 对象**，换算成今日费用与词元总量——北京时间，含高峰计费。
 
+<p align="center">
+  <img src="status-bar.png" alt="状态栏实时显示今日 DeepSeek 费用与词元" width="557"/>
+</p>
+
 ## 为什么选它？
 
 - **真实数字，不是估算。** 读取 DeepSeek 每次请求返回的 `usage`（`prompt_tokens` / `completion_tokens` / 缓存词元），按官方价计价，总额与你账单一致——没有启发式估算。
@@ -42,6 +46,10 @@
 
 状态栏显示今日（北京时间）合计并自动刷新：
 
+<p align="center">
+  <img src="display-formats.png" alt="点击状态栏切换显示格式" width="749"/>
+</p>
+
 - **费用** —— `￥9.8626/4.4522` 总费用/缓存命中费用
 - **词元** —— `91.69M/89.04M` 总词元/缓存词元
 - **余额** —— `￥xx.xx` 账户余额，随每次请求由代理刷新
@@ -52,6 +60,10 @@
 ### 明细面板
 
 点击进入完整 Webview 仪表盘：
+
+<p align="center">
+  <img src="details-view.png" alt="明细面板：汇总、走势图、按模型拆分与最近请求" width="760"/>
+</p>
 
 - **区间选择** —— `today` / `week`（最近 7 天）/ `month`（最近 30 天）/ `all`
 - **用量走势图** —— 费用或词元，今天按**小时**分桶，更长区间按**天**分桶

@@ -13,6 +13,10 @@
 
 This extension puts a lightweight local proxy between Copilot Chat (via the [DeepSeek V4 for Copilot Chat](https://marketplace.visualstudio.com/items?itemName=Vizards.deepseek-v4-for-copilot) extension) and the DeepSeek API. It captures the **real `usage` object from every response** and turns it into today's cost and token totals — Beijing time, peak pricing included.
 
+<p align="center">
+  <img src="status-bar.png" alt="Status bar showing today's DeepSeek cost and tokens" width="557"/>
+</p>
+
 ## Why this extension?
 
 - **Real numbers, not estimates.** It reads the `usage` DeepSeek returns on every request (`prompt_tokens` / `completion_tokens` / cache tokens) and prices it with the official rates. The totals match your DeepSeek bill — no heuristic token counting.
@@ -38,6 +42,10 @@ It sits **in the traffic path** — a local proxy that captures the real `usage`
 
 The status bar shows today's totals (Beijing time) and updates automatically:
 
+<p align="center">
+  <img src="display-formats.png" alt="Click the status bar to switch display formats" width="749"/>
+</p>
+
 - **Cost** — `￥9.8626/4.4522` total / cache-hit cost
 - **Tokens** — `91.69M/89.04M` total / cached tokens
 - **Balance** — `￥xx.xx` account balance, refreshed by the proxy on each request
@@ -48,6 +56,10 @@ The status bar shows today's totals (Beijing time) and updates automatically:
 ### Detail panel
 
 Click through to a full webview dashboard:
+
+<p align="center">
+  <img src="details-view.png" alt="Detail panel with summary, usage chart, per-model breakdown and recent requests" width="760"/>
+</p>
 
 - **Range selector** — `today` / `week` (last 7 days) / `month` (last 30 days) / `all`
 - **Usage-over-time chart** — cost or tokens, bucketed **by hour** for today and **by day** for longer ranges
