@@ -134,7 +134,7 @@ npm run smoke
 powershell -ExecutionPolicy Bypass -File .\package.ps1
 
 # install / reinstall (--force overwrites the same version)
-code --install-extension .\deepseek-usage-0.1.0.vsix --force
+code --install-extension .\deepseek-usage.vsix --force
 ```
 
 ## License

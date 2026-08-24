@@ -8,7 +8,7 @@ Get-ChildItem -Path . -Filter "deepseek-usage-*.vsix" -File -ErrorAction Silentl
     Remove-Item -Force
 
 # Package. vsce automatically runs vscode:prepublish (production build).
-npx -y @vscode/vsce package
+npx -y @vscode/vsce package -o deepseek-usage.vsix
 if ($LASTEXITCODE -ne 0) {
     throw "vsce package failed (exit code $LASTEXITCODE)"
 }
