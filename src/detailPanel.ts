@@ -536,10 +536,18 @@ function render(
     var fmt = d.format === "cost"
       ? function (n) { return "￥" + (n || 0).toFixed(4); }
       : function (n) { n = n || 0; if (n < 1000) return String(n); if (n < 1000000) return (n / 1000).toFixed(1) + "k"; return (n / 1000000).toFixed(2) + "M"; };
+    var alpha = function (hex, a) {
+      if (hex[0] === "#" && hex.length === 7) {
+        var r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+        return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+      }
+      return hex;
+    };
+    var barA = 0.55;
     var datasets = [
-      { label: d.names.hit, data: d.hit, backgroundColor: blue, stack: "u" },
-      { label: d.names.miss, data: d.miss, backgroundColor: green, stack: "u" },
-      { label: d.names.out, data: d.out, backgroundColor: purple, stack: "u" },
+      { label: d.names.hit, data: d.hit, backgroundColor: alpha(blue, barA), stack: "u" },
+      { label: d.names.miss, data: d.miss, backgroundColor: alpha(green, barA), stack: "u" },
+      { label: d.names.out, data: d.out, backgroundColor: alpha(purple, barA), stack: "u" },
     ];
     var scales = {
       x: { stacked: true, grid: { color: function (ctx) { return d.showTick[ctx.index] ? gridColor : "transparent"; } }, ticks: { autoSkip: false, maxRotation: 0, font: { size: 9 }, callback: function (v, i) { return d.showTick[i] ? d.labels[i] : ""; } } },
@@ -558,6 +566,11 @@ function render(
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: (function () {
+          var st = vscode.getState() || {};
+          if (!st.chartPainted) { st.chartPainted = true; vscode.setState(st); return { duration: 500 }; }
+          return false;
+        })(),
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
