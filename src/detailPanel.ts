@@ -376,15 +376,14 @@ function render(
 
   const modelRows =
     s.models.length === 0
-      ? `<tr><td colspan="7" class="muted">${t("noRecordsToday")}</td></tr>`
+      ? `<tr><td colspan="6" class="muted">${t("noRecordsToday")}</td></tr>`
       : s.models
           .slice()
           .sort((a, b) => b.m.cost - a.m.cost)
           .map(
             (r) => `<tr>
         <td>${esc(r.name)}</td>
-        <td class="num">${fmtNum(r.m.p)}</td>
-        <td class="num">${fmtNum(r.m.c)}</td>
+        <td class="num">${fmtNum(r.m.p)}/${fmtNum(r.m.c)}</td>
         <td class="num">${fmtNum(r.m.t)}/${fmtNum(r.m.ch)}</td>
         <td class="num">${money(r.m.cost)}/${money(r.m.chCost)}</td>
         <td class="num">${r.m.avgMs > 0 ? fmtMs(r.m.avgMs) : "—"}</td>
@@ -514,7 +513,7 @@ function render(
 
   <h2>${t("byModel")}</h2>
   <table>
-    <thead><tr><th>${t("model")}</th><th class="num">${t("input")}</th><th class="num">${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("costCache")}</th><th class="num">${t("avgLatency")}</th><th class="num">${t("count")}</th></tr></thead>
+    <thead><tr><th>${t("model")}</th><th class="num">${t("input")}/${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("costCache")}</th><th class="num">${t("avgLatency")}</th><th class="num">${t("count")}</th></tr></thead>
     <tbody>${modelRows}</tbody>
   </table>
 
@@ -583,7 +582,10 @@ function render(
       y: { stacked: true, beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 9 }, callback: function (v) { return fmt(v); } } },
     };
     if (d.latencyOn) {
-      scales.yLat = { position: "right", stacked: false, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: latColor, callback: function (v) { return v + "ms"; } } };
+      var latVals = [];
+      for (var i = 0; i < d.latency.length; i++) { if (d.latency[i] != null) latVals.push(d.latency[i]); }
+      var latMin = latVals.length ? Math.min.apply(null, latVals) : 0;
+      scales.yLat = { position: "right", stacked: false, min: latMin, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: latColor, callback: function (v) { return v + "ms"; } } };
     }
     if (d.balance && d.balance.length) {
       datasets.push({ label: d.names.balance, type: "line", data: d.balance, xAxisID: d.useTimeAxis ? "xBal" : "x", yAxisID: "yBal", borderColor: orange, backgroundColor: "transparent", pointRadius: 0, borderWidth: 1.5, spanGaps: true, tension: 0 });
