@@ -386,8 +386,8 @@ function render(
         <td class="num">${fmtNum(r.m.p)}</td>
         <td class="num">${fmtNum(r.m.c)}</td>
         <td class="num">${fmtNum(r.m.t)}/${fmtNum(r.m.ch)}</td>
-        <td class="num">${money(r.m.cost)}</td>
-        <td class="num">${money(r.m.chCost)}</td>
+        <td class="num">${money(r.m.cost)}/${money(r.m.chCost)}</td>
+        <td class="num">${r.m.avgMs > 0 ? fmtMs(r.m.avgMs) : "—"}</td>
         <td class="num">${r.m.count}</td>
       </tr>`,
           )
@@ -409,7 +409,7 @@ function render(
         <td>${esc(r.model)}</td>
         <td class="num">${fmtNum(r.prompt_tokens)}/${fmtNum(r.completion_tokens)}</td>
         <td class="num">${fmtNum(r.total_tokens)}/${fmtNum(r.cache_hit_tokens)}</td>
-        <td class="num">${money(rc.cost)}</td>
+        <td class="num">${money(rc.cost)}/${money(rc.chCost)}</td>
         <td class="num">${r.ms != null ? fmtMs(r.ms) : "—"}</td>
         <td class="num">${mode}${r.status}</td>
         <td>${err}</td>
@@ -514,13 +514,13 @@ function render(
 
   <h2>${t("byModel")}</h2>
   <table>
-    <thead><tr><th>${t("model")}</th><th class="num">${t("input")}</th><th class="num">${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("cost")}</th><th class="num">${t("cacheCost")}</th><th class="num">${t("count")}</th></tr></thead>
+    <thead><tr><th>${t("model")}</th><th class="num">${t("input")}</th><th class="num">${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("costCache")}</th><th class="num">${t("avgLatency")}</th><th class="num">${t("count")}</th></tr></thead>
     <tbody>${modelRows}</tbody>
   </table>
 
   <h2>${t("recentRequests")}</h2>
   <table>
-    <thead><tr><th class="num">${t("time")}</th><th>${t("model")}</th><th class="num">${t("input")}/${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("cost")}</th><th class="num">${t("latency")}</th><th class="num">${t("status")}</th><th>${t("error")}</th></tr></thead>
+    <thead><tr><th class="num">${t("time")}</th><th>${t("model")}</th><th class="num">${t("input")}/${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("costCache")}</th><th class="num">${t("latency")}</th><th class="num">${t("status")}</th><th>${t("error")}</th></tr></thead>
     <tbody>${recentRows}</tbody>
   </table>
 
@@ -583,7 +583,7 @@ function render(
       y: { stacked: true, beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 9 }, callback: function (v) { return fmt(v); } } },
     };
     if (d.latencyOn) {
-      scales.yLat = { position: "right", beginAtZero: true, stacked: false, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: latColor, callback: function (v) { return v + "ms"; } } };
+      scales.yLat = { position: "right", stacked: false, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: latColor, callback: function (v) { return v + "ms"; } } };
     }
     if (d.balance && d.balance.length) {
       datasets.push({ label: d.names.balance, type: "line", data: d.balance, xAxisID: d.useTimeAxis ? "xBal" : "x", yAxisID: "yBal", borderColor: orange, backgroundColor: "transparent", pointRadius: 0, borderWidth: 1.5, spanGaps: true, tension: 0 });

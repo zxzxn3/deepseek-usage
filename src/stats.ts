@@ -105,10 +105,13 @@ export interface ModelStats {
   cost: number;
   chCost: number;
   count: number;
+  avgMs: number; // 该模型请求平均耗时（毫秒）
+  sumMs?: number; // 内部累计用，返回前删除
+  countMs?: number;
 }
 
 export function newModelStats(): ModelStats {
-  return { p: 0, c: 0, t: 0, ch: 0, cost: 0, chCost: 0, count: 0 };
+  return { p: 0, c: 0, t: 0, ch: 0, cost: 0, chCost: 0, count: 0, avgMs: 0 };
 }
 
 /** 并入按模型统计（仅当属于北京时间今天）。返回是否并入。 */
@@ -303,6 +306,10 @@ function aggregateWindow(
     m.cost += c.cost;
     m.chCost += c.chCost;
     m.count += 1;
+    if (rmsOk) {
+      m.sumMs = (m.sumMs ?? 0) + rms;
+      m.countMs = (m.countMs ?? 0) + 1;
+    }
 
     rows.push(r);
 
@@ -364,7 +371,12 @@ function aggregateWindow(
     count402,
     avgMs: countMs ? Math.round(sumMs / countMs) : 0,
     maxMs,
-    models: [...modelMap.entries()].map(([name, m]) => ({ name, m })),
+    models: [...modelMap.entries()].map(([name, m]) => {
+      m.avgMs = m.countMs ? Math.round((m.sumMs ?? 0) / m.countMs) : 0;
+      delete m.sumMs;
+      delete m.countMs;
+      return { name, m };
+    }),
     recent: rows.slice(0, 60),
     rows,
     buckets,

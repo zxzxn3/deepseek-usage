@@ -48,7 +48,8 @@ const dict: Record<string, { en: string; zh: string }> = {
   time: { en: "Time", zh: "时间" },
   status: { en: "Status", zh: "状态" },
   error: { en: "Error", zh: "错误" },
-  totalCache: { en: "Total/cache", zh: "总/缓存" },
+  totalCache: { en: "Total/Cached", zh: "总/缓存" },
+  costCache: { en: "Cost/Cached", zh: "费用/缓存" },
   noRecordsToday: { en: "No records today", zh: "今天还没有记录" },
   noRequestsToday: { en: "No proxied requests today", zh: "今天还没有经代理的请求" },
   autoRefreshNote: {
@@ -73,7 +74,7 @@ const dict: Record<string, { en: string; zh: string }> = {
   exportDone: { en: "Exported {n} rows → {path}", zh: "已导出 {n} 行 → {path}" },
   requests: { en: "Requests", zh: "请求数" },
   latency: { en: "Latency", zh: "耗时" },
-  avgLatency: { en: "Avg latency", zh: "平均耗时" },
+  avgLatency: { en: "Avg Latency", zh: "平均耗时" },
   latencyCurve: { en: "Latency", zh: "耗时曲线" },
   balance: { en: "Balance", zh: "余额" },
   balanceNone: {
