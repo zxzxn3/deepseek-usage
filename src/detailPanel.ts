@@ -17,8 +17,8 @@ import {
   RangeStats,
   CustomMode,
   PanelRange,
-  TimeBucket,
 } from "./stats";
+import { ChartKind, ChartPayload, buildChartPayload } from "./chartData";
 import { UsageRecord } from "./jsonl";
 import {
   modelPrice,
@@ -134,144 +134,6 @@ function rowCosts(r: UsageRecord): { cost: number; chCost: number } {
   return { cost, chCost };
 }
 
-type ChartKind = "cost" | "tokens";
-
-/** 交给 webview 里 Chart.js 渲染的数据（时间槽 + 三段堆叠 + 可选余额线）。 */
-interface ChartPayload {
-  labels: string[];
-  showTick: boolean[];
-  hit: number[];
-  miss: number[];
-  out: number[];
-  format: ChartKind;
-  latency: (number | null)[]; // 每槽平均耗时（毫秒），无请求或未开启为 null
-  latencyOn: boolean;
-  balance: (number | null)[] | { x: number; y: number }[] | null;
-  useTimeAxis: boolean; // 余额线是否画在独立线性时间轴（月/全部视图按小时）
-  chartStart: number;
-  chartEnd: number;
-  names: { hit: string; miss: string; out: string; balance: string; latency: string };
-}
-
-/** 由聚合桶构建 Chart.js 数据；无数据返回 null（面板显示占位文本）。 */
-function buildChartPayload(
-  buckets: TimeBucket[],
-  kind: ChartKind,
-  barHourly: boolean,
-  labelHourly: boolean,
-  chartWin: { start: number; end: number },
-  balance: { ts: number; cny: number }[],
-  showBalance: boolean,
-  showLatency: boolean,
-): ChartPayload | null {
-  if (buckets.length === 0) return null;
-  const bucketMs = barHourly ? 3600 * 1000 : 24 * 3600 * 1000;
-  const slotCount = Math.max(1, Math.ceil((chartWin.end - chartWin.start) / bucketMs));
-  const bucketByStart = new Map(buckets.map((b) => [b.start, b]));
-  const compactDay = !labelHourly; // 非小时标签的视图（周/月/全部）：标签只显示日号
-  const slotLabel = (s: number) => {
-    const bt = bj(s);
-    if (compactDay) return String(bt.date());
-    return labelHourly
-      ? pad2(bt.hour())
-      : `${pad2(bt.month() + 1)}-${pad2(bt.date())}`;
-  };
-  const isDayStart = (s: number) => {
-    const bt = bj(s);
-    return bt.hour() === 0 && bt.minute() === 0;
-  };
-  const labelStep = Math.max(1, Math.ceil(slotCount / 24));
-  const labels: string[] = [];
-  const showTick: boolean[] = [];
-  const hit: number[] = [];
-  const miss: number[] = [];
-  const out: number[] = [];
-  const latency: (number | null)[] = [];
-  const slotStarts: number[] = [];
-  for (let i = 0; i < slotCount; i++) {
-    const s = chartWin.start + i * bucketMs;
-    const b = bucketByStart.get(s);
-    const show =
-      labelHourly ? i % labelStep === 0
-      : barHourly ? isDayStart(s)
-      : i % labelStep === 0;
-    labels.push(slotLabel(s));
-    showTick.push(show);
-    if (b) {
-      hit.push(kind === "cost" ? b.costCacheHit : b.tokCacheHit);
-      miss.push(kind === "cost" ? b.costCacheMiss : b.tokCacheMiss);
-      out.push(kind === "cost" ? b.costOutput : b.tokOutput);
-      latency.push(showLatency && b.avgMs > 0 ? b.avgMs : null);
-    } else {
-      hit.push(0);
-      miss.push(0);
-      out.push(0);
-      latency.push(null);
-    }
-    slotStarts.push(s);
-  }
-  let balanceVals: (number | null)[] | { x: number; y: number }[] | null = null;
-  let useTimeAxis = false;
-  if (showBalance && balance.length > 0) {
-    if (barHourly) {
-      // 天/周视图：柱是小时，余额按小时槽平均，画在 category 轴
-      const arr: (number | null)[] = [];
-      for (let i = 0; i < slotCount; i++) {
-        const s = slotStarts[i];
-        let sum = 0;
-        let n = 0;
-        for (const p of balance) {
-          if (p.ts >= s && p.ts < s + bucketMs) {
-            sum += p.cny;
-            n++;
-          }
-        }
-        arr.push(n > 0 ? sum / n : null);
-      }
-      balanceVals = arr;
-    } else {
-      // 月/全部视图：柱是天，余额按小时点画在独立时间轴 xBal（已与天柱对齐）
-      useTimeAxis = true;
-      const HOUR = 3600 * 1000;
-      const arr: { x: number; y: number }[] = [];
-      const first = Math.floor(chartWin.start / HOUR) * HOUR;
-      for (let t = first; t < chartWin.end; t += HOUR) {
-        let sum = 0;
-        let n = 0;
-        for (const p of balance) {
-          if (p.ts >= t && p.ts < t + HOUR) {
-            sum += p.cny;
-            n++;
-          }
-        }
-        if (n > 0) arr.push({ x: t, y: sum / n });
-      }
-      balanceVals = arr;
-    }
-  }
-  return {
-    labels,
-    showTick,
-    hit,
-    miss,
-    out,
-    format: kind,
-    latency,
-    latencyOn: showLatency,
-    balance: balanceVals,
-    useTimeAxis,
-    chartStart: chartWin.start,
-    chartEnd: chartWin.end,
-    names: {
-      hit: t("cacheHit"),
-      miss: t("cacheMiss"),
-      out: t("output"),
-      balance: t("balanceCurve"),
-      latency: t("avgLatency"),
-    },
-  };
-}
-
 function render(
   data: DetailData,
   range: PanelRange,
@@ -279,7 +141,7 @@ function render(
   custom: CustomSelection,
   showBalance: boolean,
   showLatency: boolean,
-  chartUri: string,
+  assets: { chart: string; init: string; css: string },
 ): string {
   const s = data;
   const today = bj(new Date()).format("YYYY-MM-DD");
@@ -402,7 +264,6 @@ function render(
             const err = r.error
               ? `<span class="err">✗ ${esc(r.error.slice(0, 60))}</span>`
               : "";
-            const mode = r.stream ? "s" : "o";
             return `<tr>
         <td class="num">${beijingTime(r.ts)}</td>
         <td>${esc(r.model)}</td>
@@ -410,7 +271,7 @@ function render(
         <td class="num">${fmtNum(r.total_tokens)}/${fmtNum(r.cache_hit_tokens)}</td>
         <td class="num">${money(rc.cost)}/${money(rc.chCost)}</td>
         <td class="num">${r.ms != null ? fmtMs(r.ms) : "—"}</td>
-        <td class="num">${mode}${r.status}</td>
+        <td class="num">${r.status}</td>
         <td>${err}</td>
       </tr>`;
           })
@@ -420,43 +281,7 @@ function render(
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<style>
-  body { font-family: var(--vscode-font-family); padding: 16px; color: var(--vscode-foreground); }
-  h1 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  h2 { font-size: 13px; margin: 18px 0 6px; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 4px; }
-  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-  .seg { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 3px 12px; cursor: pointer; font-size: 12px; }
-  .seg.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  .btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 3px 12px; cursor: pointer; font-size: 12px; }
-  .spacer { flex: 1; }
-  .cards { display: flex; flex-wrap: wrap; gap: 10px; }
-  .card { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px 12px; min-width: 100px; }
-  .card .k { font-size: 11px; opacity: .8; }
-  .card .v { font-size: 15px; font-weight: 600; margin-top: 2px; font-family: var(--vscode-editor-font-family); }
-  .badge { font-size: 11px; padding: 1px 8px; border-radius: 9px; }
-  .badge.peak { background: rgba(255,90,90,.18); color: #ff6b6b; }
-  .badge.off { background: rgba(80,220,140,.16); color: #3fce6b; }
-  .badge.seg { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); color: var(--vscode-foreground); }
-  .datepick { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
-  .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--vscode-foreground); cursor: pointer; }
-  .switch input { display: none; }
-  .switch .track { width: 30px; height: 16px; border-radius: 9px; background: var(--vscode-checkbox-border); position: relative; transition: background .15s; flex: none; }
-  .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--vscode-checkbox-foreground); transition: transform .15s; }
-  .switch input:checked + .track { background: var(--vscode-checkbox-background); }
-  .switch input:checked + .track::after { transform: translateX(14px); }
-  .legend { display: flex; gap: 14px; font-size: 11px; margin: 4px 0 6px; color: var(--vscode-foreground); opacity: .8; }
-  .legend span { display: inline-flex; align-items: center; gap: 4px; }
-  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-  .chart-box { position: relative; height: 160px; }
-  .banner { padding: 6px 10px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); margin-bottom: 10px; font-size: 12px; }
-  .banner.warn { background: rgba(255,90,90,.12); border-color: #ff6b6b; color: #ff6b6b; }
-  table { border-collapse: collapse; width: 100%; font-size: 12px; }
-  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--vscode-panel-border); }
-  th { opacity: .7; font-weight: 500; }
-  td.num, th.num { text-align: right; font-family: var(--vscode-editor-font-family); }
-  .err { color: #ff6b6b; }
-  .muted { opacity: .7; font-size: 11px; }
-</style>
+<link rel="stylesheet" href="${assets.css}">
 </head>
 <body data-range="${range}" data-date="${custom.date}" data-mode="${custom.mode}">
   <h1>${t("panelTitle")} <span class="muted">${today}</span> ${peakBadge} ${segBadge}
@@ -546,75 +371,8 @@ function render(
   ${
     payload
       ? `<script>window.__CHART = ${JSON.stringify(payload)};</script>
-<script src="${chartUri}"></script>
-<script>
-  (function () {
-    var d = window.__CHART;
-    if (!d || typeof Chart === "undefined") return;
-    var css = getComputedStyle(document.body);
-    var col = function (v, f) { var s = css.getPropertyValue(v).trim(); return s || f; };
-    var blue = col("--vscode-charts-blue", "#3794ff");
-    var green = col("--vscode-charts-green", "#30a148");
-    var purple = col("--vscode-charts-purple", "#b180d7");
-    var orange = col("--vscode-charts-orange", "#ea5f00");
-    var latColor = col("--vscode-charts-yellow", "#d7ba7d");
-    var gridColor = col("--vscode-panel-border", "rgba(128,128,128,0.3)");
-    var fmt = d.format === "cost"
-      ? function (n) { return "￥" + (n || 0).toFixed(4); }
-      : function (n) { n = n || 0; if (n < 1000) return String(n); if (n < 1000000) return (n / 1000).toFixed(1) + "k"; return (n / 1000000).toFixed(2) + "M"; };
-    var alpha = function (hex, a) {
-      if (hex[0] === "#" && hex.length === 7) {
-        var r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
-        return "rgba(" + r + "," + g + "," + b + "," + a + ")";
-      }
-      return hex;
-    };
-    var barA = 0.55;
-    var datasets = [];
-    datasets.push({ label: d.names.hit, data: d.hit, backgroundColor: alpha(blue, barA), stack: "u" });
-    datasets.push({ label: d.names.miss, data: d.miss, backgroundColor: alpha(green, barA), stack: "u" });
-    datasets.push({ label: d.names.out, data: d.out, backgroundColor: alpha(purple, barA), stack: "u" });
-    if (d.latencyOn) {
-      datasets.push({ label: d.names.latency, type: "line", data: d.latency, xAxisID: "x", yAxisID: "yLat", borderColor: latColor, backgroundColor: "transparent", pointRadius: 0, borderWidth: 1.5, spanGaps: true, tension: 0 });
-    }
-    var scales = {
-      x: { stacked: true, grid: { color: function (ctx) { return d.showTick[ctx.index] ? gridColor : "transparent"; } }, ticks: { autoSkip: false, maxRotation: 0, font: { size: 9 }, callback: function (v, i) { return d.showTick[i] ? d.labels[i] : ""; } } },
-      y: { stacked: true, beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 9 }, callback: function (v) { return fmt(v); } } },
-    };
-    if (d.latencyOn) {
-      var latVals = [];
-      for (var i = 0; i < d.latency.length; i++) { if (d.latency[i] != null) latVals.push(d.latency[i]); }
-      var latMin = latVals.length ? Math.min.apply(null, latVals) : 0;
-      scales.yLat = { position: "right", stacked: false, min: latMin, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: latColor, callback: function (v) { return v + "ms"; } } };
-    }
-    if (d.balance && d.balance.length) {
-      datasets.push({ label: d.names.balance, type: "line", data: d.balance, xAxisID: d.useTimeAxis ? "xBal" : "x", yAxisID: "yBal", borderColor: orange, backgroundColor: "transparent", pointRadius: 0, borderWidth: 1.5, spanGaps: true, tension: 0 });
-      if (d.useTimeAxis) {
-        scales.xBal = { type: "linear", min: d.chartStart, max: d.chartEnd, offset: false, display: false, ticks: { display: false }, grid: { drawOnChartArea: false } };
-      }
-      scales.yBal = { position: "right", beginAtZero: true, stacked: false, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: orange, callback: function (v) { return "￥" + (v || 0).toFixed(2); } } };
-    }
-    new Chart(document.getElementById("usageChart"), {
-      type: "bar",
-      data: { labels: d.labels, datasets: datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: (function () {
-          var st = vscode.getState() || {};
-          if (!st.chartPainted) { st.chartPainted = true; vscode.setState(st); return { duration: 500 }; }
-          return false;
-        })(),
-        interaction: { mode: "index", intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: function (ctx) { if (ctx.dataset.yAxisID === "yBal") return ctx.dataset.label + ": ￥" + (ctx.parsed.y || 0).toFixed(2); if (ctx.dataset.yAxisID === "yLat") return ctx.dataset.label + ": " + (ctx.parsed.y || 0) + "ms"; return ctx.dataset.label + ": " + fmt(ctx.parsed.y); } } },
-        },
-        scales: scales,
-      },
-    });
-  })();
-</script>`
+<script src="${assets.chart}"></script>
+<script src="${assets.init}"></script>`
       : ""
   }
 </body>
@@ -703,6 +461,17 @@ export function openDetailPanel(
   const chartUri = panel.webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "out", "chart.umd.js"),
   );
+  const chartInitUri = panel.webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, "out", "chartInit.js"),
+  );
+  const cssUri = panel.webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, "out", "detail.css"),
+  );
+  const assets = {
+    chart: chartUri.toString(),
+    init: chartInitUri.toString(),
+    css: cssUri.toString(),
+  };
   let range: PanelRange = "today";
   let custom: CustomSelection = { date: todayBeijingStr(), mode: "day" };
   let kind: ChartKind = "cost";
@@ -716,7 +485,7 @@ export function openDetailPanel(
       custom,
       showBalance,
       showLatency,
-      chartUri.toString(),
+      assets,
     );
   };
   refresh();

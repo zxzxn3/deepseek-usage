@@ -65,38 +65,6 @@ function costsAt(
   };
 }
 
-/** 一条记录的今日计价结果；不属于北京时间今天则返回 null。 */
-function perRecordCosts(
-  r: UsageRecord,
-): {
-  pt: number;
-  ct: number;
-  tt: number;
-  ch: number;
-  cost: number;
-  chCost: number;
-} | null {
-  const tsMs = Date.parse(r.ts);
-  const now = new Date();
-  const start = beijingDayStartUtcMs(now);
-  const end = start + 24 * 3600 * 1000;
-  if (!Number.isFinite(tsMs) || tsMs < start || tsMs >= end) return null;
-  return costsAt(r, tsMs);
-}
-
-/** 把一条记录并入今日统计（仅当属于北京时间今天）。返回是否并入。 */
-export function addRecord(stats: TodayStats, r: UsageRecord): boolean {
-  const c = perRecordCosts(r);
-  if (!c) return false;
-  stats.p += c.pt;
-  stats.c += c.ct;
-  stats.t += c.tt;
-  stats.ch += c.ch;
-  stats.cost += c.cost;
-  stats.chCost += c.chCost;
-  return true;
-}
-
 export interface ModelStats {
   p: number;
   c: number;
@@ -112,27 +80,6 @@ export interface ModelStats {
 
 export function newModelStats(): ModelStats {
   return { p: 0, c: 0, t: 0, ch: 0, cost: 0, chCost: 0, count: 0, avgMs: 0 };
-}
-
-/** 并入按模型统计（仅当属于北京时间今天）。返回是否并入。 */
-export function addModelRecord(m: ModelStats, r: UsageRecord): boolean {
-  const c = perRecordCosts(r);
-  if (!c) return false;
-  m.p += c.pt;
-  m.c += c.ct;
-  m.t += c.tt;
-  m.ch += c.ch;
-  m.cost += c.cost;
-  m.chCost += c.chCost;
-  m.count += 1;
-  return true;
-}
-
-/** 一次性聚合整批记录（如日切换后重建）。 */
-export function aggregateToday(records: UsageRecord[]): TodayStats {
-  const s = newTodayStats();
-  for (const r of records) addRecord(s, r);
-  return s;
 }
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import * as os from "os";
 import * as path from "path";
 import * as http from "http";
 import { appendRecord, TailReader, UsageRecord } from "./src/jsonl";
-import { aggregateToday, newTodayStats, addRecord } from "./src/stats";
+import { aggregateRange } from "./src/stats";
 import { isPeakBeijing, costFromUsage } from "./src/pricing";
 import { SseUsageExtractor } from "./src/server/sse";
 import { startProxyServer } from "./src/server/proxyServer";
@@ -50,7 +50,7 @@ const check = (name: string, got: unknown, exp: unknown) => {
   appendRecord(file, rec(offTs));
   appendRecord(file, rec(yestTs));
   const reader = new TailReader(file);
-  const s = aggregateToday(reader.readNew());
+  const s = aggregateRange(reader.readNew(), "today", now);
   const expPeak = costFromUsage(1_000_000, 0, 0, 1_000_000, "deepseek-v4-flash", isPeakBeijing(peakTs));
   const expOff = costFromUsage(1_000_000, 0, 0, 1_000_000, "deepseek-v4-flash", isPeakBeijing(offTs));
   check("isPeak 周二10:00 北京", isPeakBeijing("2026-08-25T02:00:00.000Z"), true);

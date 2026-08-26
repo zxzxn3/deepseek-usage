@@ -46,6 +46,16 @@ async function main() {
     path.join(__dirname, "node_modules", "chart.js", "dist", "chart.umd.js"),
     path.join(outdir, "chart.umd.js"),
   );
+
+  // 明细面板 webview 静态资源（图表初始化脚本 + 样式表）
+  copyFileSync(
+    path.join(__dirname, "src", "webview", "chartInit.js"),
+    path.join(outdir, "chartInit.js"),
+  );
+  copyFileSync(
+    path.join(__dirname, "src", "webview", "detail.css"),
+    path.join(outdir, "detail.css"),
+  );
 }
 
 main().catch((e) => {

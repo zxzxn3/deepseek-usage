@@ -7,15 +7,13 @@ import * as path from "path";
 import * as fs from "fs";
 import { TailReader, UsageRecord } from "./jsonl";
 import {
-  TodayStats,
-  newTodayStats,
-  addRecord,
   beijingDayStartUtcMs,
   aggregateRange,
   aggregateCustom,
   rangeWindow,
   customRangeWindow,
   allChartWindow,
+  RangeStats,
   RangeKey,
 } from "./stats";
 import {
@@ -38,7 +36,8 @@ let latestBalance: {
   ts: string;
 } | null = null;
 let tailReader: TailReader | null = null;
-let stats: TodayStats = newTodayStats();
+let stats: RangeStats | null = null;
+let records: UsageRecord[] = [];
 let lastDayStart = 0;
 let timer: NodeJS.Timeout | null = null;
 let proxyProc: cp.ChildProcess | null = null;
@@ -213,7 +212,8 @@ async function migrateLegacyConfig(): Promise<void> {
 function resetAggregation() {
   if (!tailReader) return;
   tailReader.reset();
-  stats = newTodayStats();
+  records = [];
+  stats = null;
 }
 
 function pollIntervalMs(): number {
@@ -235,14 +235,18 @@ function poll() {
     resetAggregation();
     lastDayStart = dayStart;
   }
-  for (const rec of tailReader.readNew()) addRecord(stats, rec);
+  const newRecs = tailReader.readNew();
+  if (newRecs.length > 0) {
+    records.push(...newRecs);
+    stats = aggregateRange(records, "today", now);
+  }
   readLatestBalance();
   renderStatusBar();
 }
 
 function renderStatusBar() {
   if (!statusBar) return;
-  const s = stats;
+  const s = stats ?? { p: 0, c: 0, t: 0, ch: 0, cost: 0, chCost: 0 };
   const running = proxyProc !== null && !proxyProc.killed;
   const fmt = getStatusFormat();
   const cur = getCurrency();
