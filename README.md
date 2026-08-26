@@ -21,9 +21,9 @@ This extension puts a lightweight local proxy between Copilot Chat (via the [Dee
 
 - **Real numbers, not estimates.** It reads the `usage` DeepSeek returns on every request (`prompt_tokens` / `completion_tokens` / cache tokens) and prices it with the official rates. The totals match your DeepSeek bill — no heuristic token counting.
 - **Lives in the status bar.** One glance: cost, cache-hit cost, total and cached tokens. Click it to switch between six display formats.
-- **A real dashboard when you need it.** A webview panel with `today / week / month / all` ranges, an hourly cost & token chart, per-model breakdown, recent requests, and CSV export.
+- **A real dashboard when you need it.** A webview panel with `Day / Week / Month / All` ranges, a stacked usage chart, per-model breakdown, recent requests, and CSV export.
 - **Your API key never touches this extension.** The proxy forwards the `Authorization` header straight through to DeepSeek; the key stays wherever the Copilot extension stores it.
-- **Zero runtime dependencies.** Pure VS Code API + Node.js built-ins. No Python, no Docker, no extra service to babysit.
+- **No external services.** Chart.js and dayjs are bundled into the extension itself — no separate service, no Python, no Docker.
 
 ## Why this is different
 
@@ -61,10 +61,11 @@ Click through to a full webview dashboard:
   <img src="details-view.png" alt="Detail panel with summary, usage chart, per-model breakdown and recent requests" width="760"/>
 </p>
 
-- **Range selector** — `today` / `week` (last 7 days) / `month` (last 30 days) / `all`
-- **Usage-over-time chart** — cost or tokens, bucketed **by hour** for today and **by day** for longer ranges
-- **Per-model breakdown** — cost and tokens per model (Flash / Pro / Vision)
-- **Recent requests** — timestamp, model, prompt/completion, total/cache tokens, cost, status
+- **Range selector** — `Day` / `Week` / `Month` / `All`, with a **date picker** to view any specific day, week, or month
+- **Usage-over-time chart** — Chart.js stacked bars (cache hit / cache miss / output) for cost or tokens, bucketed **by hour** for today & week and **by day** for month & all
+- **Balance & latency curves** — toggleable overlays for the account balance and the average request latency over time, each on its own axis with a legend
+- **Per-model breakdown** — cost & tokens per model (Flash / Pro / Vision), plus average latency per model
+- **Recent requests** — timestamp, model, prompt/completion, total/cache, cost, latency, status, error
 - **Export CSV** — dump the selected range to a CSV with cost columns
 
 ### True streaming proxy
@@ -83,6 +84,14 @@ The proxy already holds your API key on every forwarded request, so it also quer
 - **No extra key setup** — the key is used in-flight and never stored
 - **Throttled** — at most once per minute; forced immediately after an HTTP 402
 - **402 awareness** — insufficient-balance responses are surfaced in the detail panel, together with a fresh balance query
+
+### Request latency
+
+The proxy timestamps every request, so the panel knows how long each one took:
+
+- **Per-request latency** — shown in the recent-requests table
+- **Average latency** — an overall summary card, a per-model column, and an optional curve overlaid on the usage chart
+- **No cost to old data** — latency is recorded from new requests onward; historical rows simply show `—`
 
 ### Configurable pricing & currency
 
@@ -163,6 +172,7 @@ npm install
 npm run compile      # or npm run watch
 npm run typecheck
 npm run smoke
+npm test
 
 # package into a .vsix
 powershell -ExecutionPolicy Bypass -File .\package.ps1
