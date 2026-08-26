@@ -75,7 +75,7 @@ const dict: Record<string, { en: string; zh: string }> = {
   requests: { en: "Requests", zh: "请求数" },
   latency: { en: "Latency", zh: "耗时" },
   avgLatency: { en: "Avg Latency", zh: "平均耗时" },
-  latencyCurve: { en: "Latency", zh: "耗时曲线" },
+  latencyCurve: { en: "Avg Latency", zh: "耗时曲线" },
   balance: { en: "Balance", zh: "余额" },
   balanceNone: {
     en: "not queried yet (sent after the next request)",
