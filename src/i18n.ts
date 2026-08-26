@@ -10,6 +10,7 @@ const dict: Record<string, { en: string; zh: string }> = {
   cost: { en: "Cost", zh: "费用" },
   cacheCost: { en: "Cache cost", zh: "缓存费用" },
   cacheHit: { en: "Cache hit", zh: "缓存命中" },
+  cacheMiss: { en: "Cache miss", zh: "缓存未命中" },
   totalToken: { en: "Total tokens", zh: "总词元" },
   cacheToken: { en: "Cached tokens", zh: "缓存词元" },
   input: { en: "Prompt", zh: "Prompt" },
@@ -37,7 +38,7 @@ const dict: Record<string, { en: string; zh: string }> = {
   proxyExitLog: { en: "Proxy process exited code={code}", zh: "代理进程退出 code={code}" },
   proxyStoppedLog: { en: "Proxy stopped and baseUrl restored", zh: "已停止代理并恢复 baseUrl" },
   outputChannelName: { en: "DeepSeek Status Bar Proxy", zh: "DeepSeek Status Bar 代理" },
-  panelTitle: { en: "DeepSeek Status Bar · Today's Details", zh: "DeepSeek Status Bar · 今日明细" },
+  panelTitle: { en: "DeepSeek Status Bar · Details", zh: "DeepSeek Status Bar · 明细" },
   peakBadge: { en: "Peak(×2)", zh: "高峰（×2）" },
   offpeakBadge: { en: "Off-peak", zh: "空闲" },
   byModel: { en: "By model", zh: "按模型" },
@@ -61,7 +62,7 @@ const dict: Record<string, { en: string; zh: string }> = {
   statusFormatTotalT: { en: "Total tokens", zh: "总词元" },
   statusFormatTotalCost: { en: "Total cost", zh: "总费用" },
   openDetails: { en: "Open today's details", zh: "查看今日明细" },
-  rangeToday: { en: "Today", zh: "今天" },
+  rangeToday: { en: "Day", zh: "日" },
   rangeWeek: { en: "Week", zh: "周" },
   rangeMonth: { en: "Month", zh: "月" },
   rangeAll: { en: "All", zh: "全部" },
@@ -77,11 +78,24 @@ const dict: Record<string, { en: string; zh: string }> = {
     zh: "尚未查询（下次请求后获取）",
   },
   balanceLow: { en: "low", zh: "余额不足" },
+  balanceCurve: { en: "Balance curve", zh: "余额曲线" },
+  balanceDelayNote: {
+    en: "Balance updates may be delayed by up to 5 minutes (per DeepSeek official docs).",
+    zh: "余额更新可能延迟最多 5 分钟（DeepSeek 官方说明）。",
+  },
   err402: {
     en: "{n}× HTTP 402 — insufficient balance detected",
     zh: "{n} 次 HTTP 402 —— 检测到余额不足",
   },
   statusFormatBalance: { en: "Balance", zh: "余额" },
+  customRangeNote: {
+    en: "Pick a date to view that day / week / month",
+    zh: "选择日期查看指定天 / 周 / 月",
+  },
+  configMigrated: {
+    en: "Migrated {n} legacy deepseekUsage.* setting(s) to deepseekStatusBar.*",
+    zh: "已把 {n} 项旧 deepseekUsage.* 设置迁移到 deepseekStatusBar.*",
+  },
 };
 
 /** Language follows the VS Code display language (Chinese interface → Chinese, otherwise English). */

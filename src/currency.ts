@@ -7,9 +7,10 @@ export function fmtMoney(
   costCny: number,
   currency: Currency,
   cnyPerUsd: number,
+  digits = 4,
 ): string {
   const v = currency === "usd" ? costCny / cnyPerUsd : costCny;
-  return `${currency === "usd" ? "$" : "￥"}${v.toFixed(4)}`;
+  return `${currency === "usd" ? "$" : "￥"}${v.toFixed(digits)}`;
 }
 
 /** "总/缓存" 对，如 ￥1.2345/0.6789 或 $0.1764/0.0970。 */

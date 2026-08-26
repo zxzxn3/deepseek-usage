@@ -1,4 +1,4 @@
-// 官方定价表与费用计算（DeepSeek，2026-08）。
+// 官方定价表与费用计算（DeepSeek，20260803T000000）。
 // - 高峰价 = 空闲价 × 2；高峰 = 北京时间周一~五 9-12、14-18。
 // - 单位：元 / 百万 tokens。
 
@@ -56,6 +56,26 @@ export function isPeakBeijing(tsUtc: Date | string): boolean {
   const h = bt.getUTCHours();
   if (wd === 0 || wd === 6) return false; // 周六/周日
   return (h >= 9 && h < 12) || (h >= 14 && h < 18);
+}
+
+export interface PeakSegment {
+  peak: boolean;
+  range: string; // 北京时间当前计费段，如 "09:00-12:00"
+}
+
+/** 北京时间当前所处计费段：高峰=周一~五 9-12、14-18，其余闲时。 */
+export function currentBeijingSegment(tsUtc: Date | string): PeakSegment {
+  const d = typeof tsUtc === "string" ? new Date(tsUtc) : tsUtc;
+  const bt = new Date(d.getTime() + BEIJING_OFFSET_MS);
+  const wd = bt.getUTCDay();
+  const hm = bt.getUTCHours() + bt.getUTCMinutes() / 60;
+  if (wd === 0 || wd === 6) return { peak: false, range: "00:00-24:00" };
+  if (hm >= 9 && hm < 12) return { peak: true, range: "09:00-12:00" };
+  if (hm >= 12 && hm < 14) return { peak: false, range: "12:00-14:00" };
+  if (hm >= 14 && hm < 18) return { peak: true, range: "14:00-18:00" };
+  if (hm >= 18) return { peak: false, range: "18:00-24:00" };
+  // 凌晨属于跨夜闲时段：前一天 18:00 开始，至今早 09:00
+  return { peak: false, range: "18:00-09:00" };
 }
 
 /** 精确 usage 计费；peak=True 按高峰价 ×2。返回本次请求费用（元）。 */

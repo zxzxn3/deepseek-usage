@@ -12,6 +12,10 @@ import {
   addRecord,
   beijingDayStartUtcMs,
   aggregateRange,
+  aggregateCustom,
+  rangeWindow,
+  customRangeWindow,
+  allChartWindow,
   RangeKey,
 } from "./stats";
 import {
@@ -69,6 +73,7 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
   applyPricingConfig(); // 应用用户定价覆盖
+  void migrateLegacyConfig(); // 旧 deepseekUsage.* 设置迁移
   void refreshRate(); // 启动即拉一次汇率（失败回退配置值）
   rateTimer = setInterval(() => void refreshRate(), 6 * 3600 * 1000); // 每 6 小时刷新
   updateProxyContext(); // 初始化命令面板里"启动/停止"的显示状态
@@ -144,6 +149,62 @@ function applyPricingConfig() {
     {},
   );
   setPricingTable(applyOverrides(overrides));
+}
+
+// 旧配置命名空间 deepseekUsage.* → deepseekStatusBar.* 迁移（一次，迁移后删除旧键）。
+const LEGACY_CONFIG_SECTION = "deepseekUsage";
+const LEGACY_CONFIG_KEYS = [
+  "port",
+  "autoStart",
+  "manageBaseUrl",
+  "pollIntervalSeconds",
+  "statusBarFormat",
+  "pricing",
+  "currency",
+  "cnyPerUsd",
+  "lowBalanceWarnCny",
+];
+
+/** 升级后把旧 deepseekUsage.* 设置搬过来并清掉旧键，避免死设置占位。 */
+async function migrateLegacyConfig(): Promise<void> {
+  const oldCfg = vscode.workspace.getConfiguration(LEGACY_CONFIG_SECTION);
+  let migrated = 0;
+  for (const k of LEGACY_CONFIG_KEYS) {
+    const info = oldCfg.inspect<unknown>(k);
+    if (!info) continue;
+    const scopes: { target: vscode.ConfigurationTarget; val: unknown }[] = [];
+    if (info.workspaceValue !== undefined)
+      scopes.push({
+        target: vscode.ConfigurationTarget.Workspace,
+        val: info.workspaceValue,
+      });
+    if (info.globalValue !== undefined)
+      scopes.push({
+        target: vscode.ConfigurationTarget.Global,
+        val: info.globalValue,
+      });
+    for (const { target, val } of scopes) {
+      try {
+        const newInfo = getCfg().inspect<unknown>(k);
+        const existing =
+          target === vscode.ConfigurationTarget.Global
+            ? newInfo?.globalValue
+            : newInfo?.workspaceValue;
+        if (existing === undefined) {
+          await getCfg().update(k, val, target);
+          migrated += 1;
+        }
+        await oldCfg.update(k, undefined, target);
+      } catch {
+        // 单键迁移失败不阻塞其它
+      }
+    }
+  }
+  if (migrated > 0) {
+    void vscode.window.showInformationMessage(
+      t("configMigrated", { n: String(migrated) }),
+    );
+  }
 }
 
 /** 回到文件头并清空聚合（日切换 / 定价变更后重算）。 */
@@ -253,13 +314,33 @@ function fmtTok(n: number): string {
 
 function showStats() {
   readLatestBalance();
-  openDetailPanel((range) => {
+  openDetailPanel((range, custom) => {
     const all = readAllRecords();
-    return {
-      ...aggregateRange(all, range),
+    const win =
+      range === "custom"
+        ? customRangeWindow(custom.date, custom.mode)
+        : rangeWindow(range, new Date());
+    const chartWin =
+      range === "all" ? allChartWindow(all, new Date()) : win;
+    const balanceHistory = readAllBalance()
+      .filter((b) => {
+        if (b.totalCny === null) return false;
+        const t = Date.parse(b.ts);
+        return Number.isFinite(t) && t >= win.start && t < win.end;
+      })
+      .map((b) => ({ ts: Date.parse(b.ts), cny: b.totalCny as number }))
+      .sort((a, b) => a.ts - b.ts);
+    const base = {
       peakNow: isPeakBeijing(new Date()),
       balance: latestBalance,
+      balanceHistory,
+      win,
+      chartWin,
     };
+    if (range === "custom") {
+      return { ...aggregateCustom(all, custom.date, custom.mode), ...base };
+    }
+    return { ...aggregateRange(all, range), ...base };
   });
 }
 
@@ -297,6 +378,26 @@ function readAllRecords(): UsageRecord[] {
     if (!s) continue;
     try {
       out.push(JSON.parse(s) as UsageRecord);
+    } catch {
+      // 单行损坏则跳过
+    }
+  }
+  return out;
+}
+
+/** 直接读整个余额 JSONL（明细面板余额曲线用）。 */
+function readAllBalance(): { ts: string; totalCny: number | null }[] {
+  if (!balancePath || !fs.existsSync(balancePath)) return [];
+  const out: { ts: string; totalCny: number | null }[] = [];
+  for (const line of fs.readFileSync(balancePath, "utf8").split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const j = JSON.parse(s);
+      out.push({
+        ts: typeof j.ts === "string" ? j.ts : "",
+        totalCny: typeof j.totalCny === "number" ? j.totalCny : null,
+      });
     } catch {
       // 单行损坏则跳过
     }
