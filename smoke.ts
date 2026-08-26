@@ -129,6 +129,7 @@ async function runStreaming() {
   check("流式: JSONL 记 1 条", recs1.length, 1);
   check("流式: usage 落库 total=150", recs1[0]?.total_tokens, 150);
   check("流式: usage 落库 cache_hit=90", recs1[0]?.cache_hit_tokens, 90);
+  check("流式: ms 落库为耗时数字", typeof recs1[0]?.ms === "number" && (recs1[0]?.ms as number) > 0, true);
 
   // 3c. 客户端断连：读第一段后销毁，代理应继续读完上游并落 usage
   const body2 = JSON.stringify({ model: "deepseek-v4-flash", messages: [], stream: true });
@@ -154,6 +155,85 @@ async function runStreaming() {
   fakeUp.close();
 }
 
-runStreaming().then(() => {
+// ---------- 4. 非流式透传 + 402 触发余额查询 ----------
+async function runNonStream402() {
+  // 余额 mock（DEEPSEEK_BALANCE_URL 指向这里）
+  const balSrv = http.createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ is_available: false, balance_infos: [{ currency: "CNY", total_balance: "1.23" }] }));
+  });
+  await new Promise<void>((r) => balSrv.listen(0, "127.0.0.1", r));
+  const balUrl = `http://127.0.0.1:${(balSrv.address() as any).port}/user/balance`;
+
+  // 上游 mock：x-mode=err 时回 402，否则 200 + usage
+  const upSrv = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      if (req.headers["x-mode"] === "err") {
+        res.writeHead(402, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "insufficient balance" } }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        id: "x",
+        choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140, prompt_cache_hit_tokens: 30, prompt_cache_miss_tokens: 70 },
+      }));
+    });
+  });
+  await new Promise<void>((r) => upSrv.listen(0, "127.0.0.1", r));
+  const upPort = (upSrv.address() as any).port;
+
+  const jsonl = path.join(os.tmpdir(), "dsu-nonstream.jsonl");
+  const balFile = path.join(os.tmpdir(), "dsu-nonstream-bal.jsonl");
+  fs.rmSync(jsonl, { force: true });
+  fs.rmSync(balFile, { force: true });
+  const proxy = await startProxyServer({
+    port: 0,
+    jsonlPath: jsonl,
+    balancePath: balFile,
+    apiUrl: `http://127.0.0.1:${upPort}/v1/chat/completions`,
+    balanceUrl: balUrl,
+    log: () => {},
+  });
+  const proxyPort = (proxy.address() as any).port;
+
+  const post = (body: unknown, headers: Record<string, string>) =>
+    new Promise<{ status: number }>((resolve, reject) => {
+      const r = http.request(
+        { host: "127.0.0.1", port: proxyPort, path: "/v1/chat/completions", method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer test", ...headers } },
+        (s) => {
+          s.resume();
+          s.on("end", () => resolve({ status: s.statusCode ?? 0 }));
+        },
+      );
+      r.on("error", reject);
+      r.write(JSON.stringify(body));
+      r.end();
+    });
+
+  const okBody = { model: "deepseek-v4-flash", messages: [{ role: "user", content: "hi" }], stream: false };
+  await post(okBody, {});
+  const recs = fs.readFileSync(jsonl, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  check("非流式: 记 1 条", recs.length, 1);
+  check("非流式: stream=false", recs[0].stream, false);
+  check("非流式: usage total=140", recs[0].total_tokens, 140);
+  check("非流式: ms 落库为耗时数字", typeof recs[0].ms === "number" && recs[0].ms > 0, true);
+
+  // 402 → 强制查余额 → balance.jsonl 写入
+  await post({ model: "deepseek-v4-flash", messages: [], stream: false }, { "x-mode": "err" });
+  await new Promise((r) => setTimeout(r, 300)); // 等异步查余额
+  const bals = fs.readFileSync(balFile, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  check("402: balance.jsonl 记 1 条", bals.length, 1);
+  check("402: 余额 totalCny=1.23", bals[0].totalCny, 1.23);
+  check("402: isAvailable=false", bals[0].isAvailable, false);
+
+  proxy.close();
+  upSrv.close();
+  balSrv.close();
+}
+
+runStreaming().then(() => runNonStream402()).then(() => {
   console.log("smoke done");
 });

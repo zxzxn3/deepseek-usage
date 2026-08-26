@@ -19,6 +19,7 @@ export interface ProxyServerOptions {
   jsonlPath: string;
   balancePath?: string;
   apiUrl?: string;
+  balanceUrl?: string;
   log?: (line: string) => void;
 }
 
@@ -27,8 +28,10 @@ export function startProxyServer(
 ): Promise<http.Server> {
   const { port, jsonlPath, balancePath, log = console.log } = opts;
   const apiUrl = opts.apiUrl ?? process.env.DEEPSEEK_API_URL ?? DEFAULT_API_URL;
+  const balanceUrl =
+    opts.balanceUrl ?? process.env.DEEPSEEK_BALANCE_URL ?? BALANCE_URL;
   const server = http.createServer((req, res) => {
-    void handle(req, res, apiUrl, jsonlPath, balancePath, log);
+    void handle(req, res, apiUrl, jsonlPath, balancePath, log, balanceUrl);
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -90,13 +93,14 @@ function recordAndLog(
 // 顺带查账户余额（方案 A）：用本次请求在手的 key，不落盘 key。
 function queryBalance(
   auth: string,
+  balanceUrl: string,
   balancePath: string,
   log: (s: string) => void,
 ): void {
-  const client = BALANCE_URL.startsWith("https:") ? https : http;
+  const client = balanceUrl.startsWith("https:") ? https : http;
   let req: http.ClientRequest;
   try {
-    req = client.get(BALANCE_URL, { headers: { Authorization: auth } }, (res) => {
+    req = client.get(balanceUrl, { headers: { Authorization: auth } }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => {
@@ -145,12 +149,13 @@ function maybeQueryBalance(
   balancePath: string | undefined,
   force: boolean,
   log: (s: string) => void,
+  balanceUrl: string,
 ): void {
   if (!balancePath || !auth) return;
   const now = Date.now();
   if (!force && now - lastBalanceAt < BALANCE_THROTTLE_MS) return;
   lastBalanceAt = now;
-  queryBalance(auth, balancePath, log);
+  queryBalance(auth, balanceUrl, balancePath, log);
 }
 
 async function handle(
@@ -160,6 +165,7 @@ async function handle(
   jsonlPath: string,
   balancePath: string | undefined,
   log: (s: string) => void,
+  balanceUrl: string,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   const path = url.pathname;
@@ -197,7 +203,7 @@ async function handle(
   const model = payload.model ?? "deepseek-v4-flash";
 
   if (payload.stream) {
-    await handleStream(req, res, apiUrl, jsonlPath, balancePath, log, model, payload);
+    await handleStream(req, res, apiUrl, jsonlPath, balancePath, log, model, payload, balanceUrl);
     return;
   }
 
@@ -216,7 +222,7 @@ async function handle(
       // 无 usage
     }
     recordAndLog(jsonlPath, log, model, u, false, up.status, undefined, Date.now() - t0);
-    maybeQueryBalance(auth, balancePath, up.status === 402, log);
+    maybeQueryBalance(auth, balancePath, up.status === 402, log, balanceUrl);
     res.writeHead(up.status, {
       "Content-Type": up.headers.get("content-type") ?? "application/json",
     });
@@ -241,6 +247,7 @@ function handleStream(
   log: (s: string) => void,
   model: string,
   payload: any,
+  balanceUrl: string,
 ): Promise<void> {
   return new Promise((resolve) => {
     const t0 = Date.now();
@@ -312,7 +319,7 @@ function handleStream(
             err.toString("utf8").slice(0, 200),
             Date.now() - t0,
           );
-          maybeQueryBalance(auth, balancePath, status === 402, log);
+          maybeQueryBalance(auth, balancePath, status === 402, log, balanceUrl);
           finish();
         });
         return;
@@ -360,7 +367,7 @@ function handleStream(
           }
         }
         recordAndLog(jsonlPath, log, model, extractor.usage, true, status, undefined, Date.now() - t0);
-        maybeQueryBalance(auth, balancePath, false, log);
+        maybeQueryBalance(auth, balancePath, false, log, balanceUrl);
         finish();
       });
 

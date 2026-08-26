@@ -132,6 +132,7 @@
     "watch": "node build.js --watch",
     "typecheck": "tsc --noEmit",
     "smoke": "esbuild smoke.ts --bundle --format=cjs --platform=node --outfile=out/smoke.js && node out/smoke.js",
+    "test": "esbuild test.ts --bundle --format=cjs --platform=node --outfile=out/test.js --alias:vscode=./test/vscodeStub.ts && node out/test.js",
     "vscode:prepublish": "node build.js --production"
   },
   "devDependencies": {

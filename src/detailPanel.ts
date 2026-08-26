@@ -264,6 +264,7 @@ function render(
             const err = r.error
               ? `<span class="err">✗ ${esc(r.error.slice(0, 60))}</span>`
               : "";
+            const mode = r.stream ? "s" : "o";
             return `<tr>
         <td class="num">${beijingTime(r.ts)}</td>
         <td>${esc(r.model)}</td>
@@ -271,7 +272,7 @@ function render(
         <td class="num">${fmtNum(r.total_tokens)}/${fmtNum(r.cache_hit_tokens)}</td>
         <td class="num">${money(rc.cost)}/${money(rc.chCost)}</td>
         <td class="num">${r.ms != null ? fmtMs(r.ms) : "—"}</td>
-        <td class="num">${r.status}</td>
+        <td class="num">${mode}${r.status}</td>
         <td>${err}</td>
       </tr>`;
           })
