@@ -5,6 +5,8 @@ build.js
 package.ps1
 tsconfig.json
 smoke.ts
+test.ts
+test/**
 package-lock.json
 **/*.map
 .gitignore
