@@ -113,6 +113,10 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function fmtMs(ms: number): string {
+  return ms < 1000 ? ms + "ms" : (ms / 1000).toFixed(1) + "s";
+}
+
 function rowCosts(r: UsageRecord): { cost: number; chCost: number } {
   const tsMs = Date.parse(r.ts);
   const peak = isPeakBeijing(new Date(tsMs));
@@ -140,11 +144,13 @@ interface ChartPayload {
   miss: number[];
   out: number[];
   format: ChartKind;
+  latency: (number | null)[]; // 每槽平均耗时（毫秒），无请求或未开启为 null
+  latencyOn: boolean;
   balance: (number | null)[] | { x: number; y: number }[] | null;
   useTimeAxis: boolean; // 余额线是否画在独立线性时间轴（月/全部视图按小时）
   chartStart: number;
   chartEnd: number;
-  names: { hit: string; miss: string; out: string; balance: string };
+  names: { hit: string; miss: string; out: string; balance: string; latency: string };
 }
 
 /** 由聚合桶构建 Chart.js 数据；无数据返回 null（面板显示占位文本）。 */
@@ -156,6 +162,7 @@ function buildChartPayload(
   chartWin: { start: number; end: number },
   balance: { ts: number; cny: number }[],
   showBalance: boolean,
+  showLatency: boolean,
 ): ChartPayload | null {
   if (buckets.length === 0) return null;
   const bucketMs = barHourly ? 3600 * 1000 : 24 * 3600 * 1000;
@@ -179,6 +186,7 @@ function buildChartPayload(
   const hit: number[] = [];
   const miss: number[] = [];
   const out: number[] = [];
+  const latency: (number | null)[] = [];
   const slotStarts: number[] = [];
   for (let i = 0; i < slotCount; i++) {
     const s = chartWin.start + i * bucketMs;
@@ -193,10 +201,12 @@ function buildChartPayload(
       hit.push(kind === "cost" ? b.costCacheHit : b.tokCacheHit);
       miss.push(kind === "cost" ? b.costCacheMiss : b.tokCacheMiss);
       out.push(kind === "cost" ? b.costOutput : b.tokOutput);
+      latency.push(showLatency && b.avgMs > 0 ? b.avgMs : null);
     } else {
       hit.push(0);
       miss.push(0);
       out.push(0);
+      latency.push(null);
     }
     slotStarts.push(s);
   }
@@ -246,6 +256,8 @@ function buildChartPayload(
     miss,
     out,
     format: kind,
+    latency,
+    latencyOn: showLatency,
     balance: balanceVals,
     useTimeAxis,
     chartStart: chartWin.start,
@@ -255,6 +267,7 @@ function buildChartPayload(
       miss: t("cacheMiss"),
       out: t("output"),
       balance: t("balanceCurve"),
+      latency: t("avgLatency"),
     },
   };
 }
@@ -265,6 +278,7 @@ function render(
   kind: ChartKind,
   custom: CustomSelection,
   showBalance: boolean,
+  showLatency: boolean,
   chartUri: string,
 ): string {
   const s = data;
@@ -344,6 +358,7 @@ function render(
     s.chartWin,
     s.balanceHistory,
     showBalance,
+    showLatency,
   );
 
   const card = (k: string, v: string) =>
@@ -356,7 +371,8 @@ function render(
     card(t("cacheToken"), fmtNum(s.ch)) +
     card(t("input"), fmtNum(s.p)) +
     card(t("output"), fmtNum(s.c)) +
-    card(t("requests"), String(s.count));
+    card(t("requests"), String(s.count)) +
+    card(t("avgLatency"), s.avgMs > 0 ? fmtMs(s.avgMs) : "—");
 
   const modelRows =
     s.models.length === 0
@@ -380,7 +396,7 @@ function render(
   const recent = s.recent.slice(0, RECENT_DISPLAY);
   const recentRows =
     recent.length === 0
-      ? `<tr><td colspan="7" class="muted">${t("noRequestsToday")}</td></tr>`
+      ? `<tr><td colspan="8" class="muted">${t("noRequestsToday")}</td></tr>`
       : recent
           .map((r) => {
             const rc = rowCosts(r);
@@ -394,6 +410,7 @@ function render(
         <td class="num">${fmtNum(r.prompt_tokens)}/${fmtNum(r.completion_tokens)}</td>
         <td class="num">${fmtNum(r.total_tokens)}/${fmtNum(r.cache_hit_tokens)}</td>
         <td class="num">${money(rc.cost)}</td>
+        <td class="num">${r.ms != null ? fmtMs(r.ms) : "—"}</td>
         <td class="num">${mode}${r.status}</td>
         <td>${err}</td>
       </tr>`;
@@ -469,6 +486,11 @@ function render(
       <span class="track"></span>
       <span>${t("balanceCurve")}</span>
     </label>
+    <label class="switch" title="${t("latencyCurve")}">
+      <input type="checkbox" id="showLatency" ${showLatency ? "checked" : ""} />
+      <span class="track"></span>
+      <span>${t("latencyCurve")}</span>
+    </label>
     <span class="spacer"></span>
     ${kindBtn("cost")}
     ${kindBtn("tokens")}
@@ -479,6 +501,8 @@ function render(
     <span><i style="background:var(--vscode-charts-blue)"></i>${t("cacheHit")}</span>
     <span><i style="background:var(--vscode-charts-green)"></i>${t("cacheMiss")}</span>
     <span><i style="background:var(--vscode-charts-purple)"></i>${t("output")}</span>
+    ${showBalance ? `<span><i style="background:var(--vscode-charts-orange)"></i>${t("balanceCurve")}</span>` : ""}
+    ${showLatency ? `<span><i style="background:var(--vscode-charts-yellow)"></i>${t("avgLatency")}</span>` : ""}
   </div>
   ${
     payload
@@ -496,7 +520,7 @@ function render(
 
   <h2>${t("recentRequests")}</h2>
   <table>
-    <thead><tr><th class="num">${t("time")}</th><th>${t("model")}</th><th class="num">${t("input")}/${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("cost")}</th><th class="num">${t("status")}</th><th>${t("error")}</th></tr></thead>
+    <thead><tr><th class="num">${t("time")}</th><th>${t("model")}</th><th class="num">${t("input")}/${t("output")}</th><th class="num">${t("totalCache")}</th><th class="num">${t("cost")}</th><th class="num">${t("latency")}</th><th class="num">${t("status")}</th><th>${t("error")}</th></tr></thead>
     <tbody>${recentRows}</tbody>
   </table>
 
@@ -513,6 +537,8 @@ function render(
       vscode.postMessage({ type: "date", date: e.target.value, inputType: e.target.type }));
     document.getElementById("showBalance").addEventListener("change", (e) =>
       vscode.postMessage({ type: "balance", show: e.target.checked }));
+    document.getElementById("showLatency").addEventListener("change", (e) =>
+      vscode.postMessage({ type: "latency", show: e.target.checked }));
     document.getElementById("export").addEventListener("click", () => {
       const b = document.body.dataset;
       vscode.postMessage({ type: "exportCsv", range: b.range, date: b.date, mode: b.mode });
@@ -532,6 +558,7 @@ function render(
     var green = col("--vscode-charts-green", "#30a148");
     var purple = col("--vscode-charts-purple", "#b180d7");
     var orange = col("--vscode-charts-orange", "#ea5f00");
+    var latColor = col("--vscode-charts-yellow", "#d7ba7d");
     var gridColor = col("--vscode-panel-border", "rgba(128,128,128,0.3)");
     var fmt = d.format === "cost"
       ? function (n) { return "￥" + (n || 0).toFixed(4); }
@@ -544,15 +571,20 @@ function render(
       return hex;
     };
     var barA = 0.55;
-    var datasets = [
-      { label: d.names.hit, data: d.hit, backgroundColor: alpha(blue, barA), stack: "u" },
-      { label: d.names.miss, data: d.miss, backgroundColor: alpha(green, barA), stack: "u" },
-      { label: d.names.out, data: d.out, backgroundColor: alpha(purple, barA), stack: "u" },
-    ];
+    var datasets = [];
+    datasets.push({ label: d.names.hit, data: d.hit, backgroundColor: alpha(blue, barA), stack: "u" });
+    datasets.push({ label: d.names.miss, data: d.miss, backgroundColor: alpha(green, barA), stack: "u" });
+    datasets.push({ label: d.names.out, data: d.out, backgroundColor: alpha(purple, barA), stack: "u" });
+    if (d.latencyOn) {
+      datasets.push({ label: d.names.latency, type: "line", data: d.latency, xAxisID: "x", yAxisID: "yLat", borderColor: latColor, backgroundColor: "transparent", pointRadius: 0, borderWidth: 1.5, spanGaps: true, tension: 0 });
+    }
     var scales = {
       x: { stacked: true, grid: { color: function (ctx) { return d.showTick[ctx.index] ? gridColor : "transparent"; } }, ticks: { autoSkip: false, maxRotation: 0, font: { size: 9 }, callback: function (v, i) { return d.showTick[i] ? d.labels[i] : ""; } } },
       y: { stacked: true, beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 9 }, callback: function (v) { return fmt(v); } } },
     };
+    if (d.latencyOn) {
+      scales.yLat = { position: "right", beginAtZero: true, stacked: false, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: latColor, callback: function (v) { return v + "ms"; } } };
+    }
     if (d.balance && d.balance.length) {
       datasets.push({ label: d.names.balance, type: "line", data: d.balance, xAxisID: d.useTimeAxis ? "xBal" : "x", yAxisID: "yBal", borderColor: orange, backgroundColor: "transparent", pointRadius: 0, borderWidth: 1.5, spanGaps: true, tension: 0 });
       if (d.useTimeAxis) {
@@ -574,7 +606,7 @@ function render(
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + (ctx.dataset.yAxisID === "yBal" ? "￥" + (ctx.parsed.y || 0).toFixed(2) : fmt(ctx.parsed.y)); } } },
+          tooltip: { callbacks: { label: function (ctx) { if (ctx.dataset.yAxisID === "yBal") return ctx.dataset.label + ": ￥" + (ctx.parsed.y || 0).toFixed(2); if (ctx.dataset.yAxisID === "yLat") return ctx.dataset.label + ": " + (ctx.parsed.y || 0) + "ms"; return ctx.dataset.label + ": " + fmt(ctx.parsed.y); } } },
         },
         scales: scales,
       },
@@ -673,6 +705,7 @@ export function openDetailPanel(
   let custom: CustomSelection = { date: todayBeijingStr(), mode: "day" };
   let kind: ChartKind = "cost";
   let showBalance = false;
+  let showLatency = false;
   const refresh = () => {
     panel.webview.html = render(
       getData(range, custom),
@@ -680,6 +713,7 @@ export function openDetailPanel(
       kind,
       custom,
       showBalance,
+      showLatency,
       chartUri.toString(),
     );
   };
@@ -712,6 +746,9 @@ export function openDetailPanel(
       }
     } else if (msg.type === "balance") {
       showBalance = msg.show === true;
+      refresh();
+    } else if (msg.type === "latency") {
+      showLatency = msg.show === true;
       refresh();
     } else if (msg.type === "exportCsv") {
       void exportCsv(

@@ -221,6 +221,9 @@ export interface TimeBucket {
   tokCacheHit: number;
   tokCacheMiss: number;
   tokOutput: number;
+  avgMs: number; // 该桶内请求平均耗时（毫秒）
+  sumMs?: number; // 内部累计用，返回前删除
+  countMs?: number;
 }
 
 export interface RangeStats {
@@ -232,6 +235,8 @@ export interface RangeStats {
   chCost: number;
   count: number;
   count402: number; // 区间内 402（余额不足）请求数
+  avgMs: number; // 请求平均耗时（毫秒，仅统计带 ms 的记录）
+  maxMs: number; // 最慢请求耗时（毫秒）
   models: { name: string; m: ModelStats }[];
   recent: UsageRecord[]; // 区间内最近 60 条（新→旧）
   rows: UsageRecord[]; // 区间内全部（新→旧），供 CSV 导出
@@ -254,6 +259,9 @@ function aggregateWindow(
   const rows: UsageRecord[] = [];
   const bucketMap = new Map<number, TimeBucket>();
   let count402 = 0;
+  let sumMs = 0;
+  let countMs = 0;
+  let maxMs = 0;
 
   const bucketLabel = (ms: number) => {
     const bt = bj(ms);
@@ -267,6 +275,13 @@ function aggregateWindow(
     const tsMs = Date.parse(r.ts);
     if (!Number.isFinite(tsMs) || tsMs < start || tsMs >= end) continue;
     if (r.status === 402) count402 += 1;
+    const rms = r.ms;
+    const rmsOk = typeof rms === "number" && Number.isFinite(rms) && rms >= 0;
+    if (rmsOk) {
+      sumMs += rms;
+      countMs += 1;
+      if (rms > maxMs) maxMs = rms;
+    }
     const c = costsAt(r, tsMs);
 
     stats.p += c.pt;
@@ -310,6 +325,7 @@ function aggregateWindow(
         tokCacheHit: 0,
         tokCacheMiss: 0,
         tokOutput: 0,
+        avgMs: 0,
       };
       bucketMap.set(bStart, b);
     }
@@ -321,12 +337,21 @@ function aggregateWindow(
     b.tokCacheHit += c.ch;
     b.tokCacheMiss += c.cm;
     b.tokOutput += c.ct;
+    if (rmsOk) {
+      b.sumMs = (b.sumMs ?? 0) + rms;
+      b.countMs = (b.countMs ?? 0) + 1;
+    }
   }
 
   rows.sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts));
   const buckets = [...bucketMap.values()].sort((a, b) =>
     a.label < b.label ? -1 : a.label > b.label ? 1 : 0,
   );
+  for (const b of buckets) {
+    b.avgMs = b.countMs ? Math.round((b.sumMs ?? 0) / b.countMs) : 0;
+    delete b.sumMs;
+    delete b.countMs;
+  }
 
   return {
     p: stats.p,
@@ -337,6 +362,8 @@ function aggregateWindow(
     chCost: stats.chCost,
     count: rows.length,
     count402,
+    avgMs: countMs ? Math.round(sumMs / countMs) : 0,
+    maxMs,
     models: [...modelMap.entries()].map(([name, m]) => ({ name, m })),
     recent: rows.slice(0, 60),
     rows,

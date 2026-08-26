@@ -11,6 +11,7 @@ export interface UsageRecord {
   cache_miss_tokens: number | null;
   stream: boolean;
   status: number;
+  ms?: number; // 请求耗时（毫秒，代理测量；旧数据无此字段）
   error?: string | null;
 }
 

@@ -72,13 +72,16 @@ const dict: Record<string, { en: string; zh: string }> = {
   exportCsv: { en: "Export CSV", zh: "导出 CSV" },
   exportDone: { en: "Exported {n} rows → {path}", zh: "已导出 {n} 行 → {path}" },
   requests: { en: "Requests", zh: "请求数" },
+  latency: { en: "Latency", zh: "耗时" },
+  avgLatency: { en: "Avg latency", zh: "平均耗时" },
+  latencyCurve: { en: "Latency", zh: "耗时曲线" },
   balance: { en: "Balance", zh: "余额" },
   balanceNone: {
     en: "not queried yet (sent after the next request)",
     zh: "尚未查询（下次请求后获取）",
   },
   balanceLow: { en: "low", zh: "余额不足" },
-  balanceCurve: { en: "Balance curve", zh: "余额曲线" },
+  balanceCurve: { en: "Balance", zh: "余额曲线" },
   balanceDelayNote: {
     en: "Balance updates may be delayed by up to 5 minutes (per DeepSeek official docs).",
     zh: "余额更新可能延迟最多 5 分钟（DeepSeek 官方说明）。",

@@ -55,6 +55,7 @@ function recordAndLog(
   stream: boolean,
   status: number,
   error?: string,
+  ms?: number,
 ): void {
   const f = usageFields(u);
   const rec: UsageRecord = {
@@ -67,6 +68,7 @@ function recordAndLog(
     cache_miss_tokens: f.cm,
     stream,
     status,
+    ms,
     error,
   };
   appendRecord(jsonlPath, rec);
@@ -182,6 +184,7 @@ async function handle(
     return;
   }
 
+  const t0 = Date.now();
   const body = await readBody(req);
   let payload: any;
   try {
@@ -212,14 +215,14 @@ async function handle(
     } catch {
       // 无 usage
     }
-    recordAndLog(jsonlPath, log, model, u, false, up.status);
+    recordAndLog(jsonlPath, log, model, u, false, up.status, undefined, Date.now() - t0);
     maybeQueryBalance(auth, balancePath, up.status === 402, log);
     res.writeHead(up.status, {
       "Content-Type": up.headers.get("content-type") ?? "application/json",
     });
     res.end(raw);
   } catch (e: any) {
-    recordAndLog(jsonlPath, log, model, null, false, 0, String(e));
+    recordAndLog(jsonlPath, log, model, null, false, 0, String(e), Date.now() - t0);
     if (!res.headersSent) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: String(e) }));
@@ -240,6 +243,7 @@ function handleStream(
   payload: any,
 ): Promise<void> {
   return new Promise((resolve) => {
+    const t0 = Date.now();
     const auth = req.headers.authorization ?? "";
     const body = JSON.stringify({
       ...payload,
@@ -256,7 +260,7 @@ function handleStream(
       });
     } catch (e: any) {
       // 构造请求失败（协议/URL 非法等）：记日志 + 回 500，别让整个代理进程崩掉
-      recordAndLog(jsonlPath, log, model, null, true, 0, String(e));
+      recordAndLog(jsonlPath, log, model, null, true, 0, String(e), Date.now() - t0);
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: String(e) }));
@@ -269,7 +273,7 @@ function handleStream(
     const finish = () => resolve();
 
     upstream.on("error", (e: Error) => {
-      recordAndLog(jsonlPath, log, model, null, true, 0, String(e));
+      recordAndLog(jsonlPath, log, model, null, true, 0, String(e), Date.now() - t0);
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: String(e) }));
@@ -306,6 +310,7 @@ function handleStream(
             true,
             status,
             err.toString("utf8").slice(0, 200),
+            Date.now() - t0,
           );
           maybeQueryBalance(auth, balancePath, status === 402, log);
           finish();
@@ -354,14 +359,14 @@ function handleStream(
             /* ignore */
           }
         }
-        recordAndLog(jsonlPath, log, model, extractor.usage, true, status);
+        recordAndLog(jsonlPath, log, model, extractor.usage, true, status, undefined, Date.now() - t0);
         maybeQueryBalance(auth, balancePath, false, log);
         finish();
       });
 
       upRes.on("error", (e: Error) => {
         extractor.flush();
-        recordAndLog(jsonlPath, log, model, extractor.usage, true, 0, String(e));
+        recordAndLog(jsonlPath, log, model, extractor.usage, true, 0, String(e), Date.now() - t0);
         try {
           if (!clientGone) res.end();
         } catch {
