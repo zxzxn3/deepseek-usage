@@ -1,6 +1,7 @@
 // esbuild 打包：产出 out/extension.js（扩展宿主）与 out/server.js（代理子进程）。
+// 另把 Chart.js 的 UMD 产物复制到 out/chart.umd.js，供明细面板 webview 加载。
 const esbuild = require("esbuild");
-const { rmSync } = require("fs");
+const { rmSync, copyFileSync } = require("fs");
 const path = require("path");
 
 const watch = process.argv.includes("--watch");
@@ -39,6 +40,12 @@ async function main() {
     await ctx.dispose();
     console.log("[esbuild] build done → out/extension.js, out/server.js");
   }
+
+  // 复制 Chart.js UMD（webview 需要独立脚本文件，不能打包进 extension.js）
+  copyFileSync(
+    path.join(__dirname, "node_modules", "chart.js", "dist", "chart.umd.js"),
+    path.join(outdir, "chart.umd.js"),
+  );
 }
 
 main().catch((e) => {

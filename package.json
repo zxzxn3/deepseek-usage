@@ -89,7 +89,14 @@
         },
         "deepseekStatusBar.statusBarFormat": {
           "type": "string",
-          "enum": ["full", "cost", "tokens", "totalT", "totalCost", "balance"],
+          "enum": [
+            "full",
+            "cost",
+            "tokens",
+            "totalT",
+            "totalCost",
+            "balance"
+          ],
           "default": "full",
           "description": "%config.statusBarFormat%"
         },
@@ -100,7 +107,10 @@
         },
         "deepseekStatusBar.currency": {
           "type": "string",
-          "enum": ["cny", "usd"],
+          "enum": [
+            "cny",
+            "usd"
+          ],
           "default": "cny",
           "description": "%config.currency%"
         },
@@ -129,5 +139,9 @@
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.24.0",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "dayjs": "^1.11.23"
   }
 }

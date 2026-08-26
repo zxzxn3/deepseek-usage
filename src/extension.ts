@@ -45,6 +45,7 @@ let proxyProc: cp.ChildProcess | null = null;
 let originalBaseUrl: string | undefined;
 let proxyLog: vscode.OutputChannel | null = null;
 let rateTimer: NodeJS.Timeout | null = null;
+let extUri: vscode.Uri;
 
 export function activate(context: vscode.ExtensionContext) {
   // 数据文件：扩展全局存储（用户级、跨工作区）
@@ -62,6 +63,7 @@ export function activate(context: vscode.ExtensionContext) {
   statusBar.name = "DeepSeek Status Bar";
   statusBar.command = "deepseekStatusBar.statusBarFormat";
   statusBar.show();
+  extUri = context.extensionUri;
 
   context.subscriptions.push(
     vscode.commands.registerCommand("deepseekStatusBar.showStats", () => showStats()),
@@ -314,34 +316,37 @@ function fmtTok(n: number): string {
 
 function showStats() {
   readLatestBalance();
-  openDetailPanel((range, custom) => {
-    const all = readAllRecords();
-    const win =
-      range === "custom"
-        ? customRangeWindow(custom.date, custom.mode)
-        : rangeWindow(range, new Date());
-    const chartWin =
-      range === "all" ? allChartWindow(all, new Date()) : win;
-    const balanceHistory = readAllBalance()
-      .filter((b) => {
-        if (b.totalCny === null) return false;
-        const t = Date.parse(b.ts);
-        return Number.isFinite(t) && t >= win.start && t < win.end;
-      })
-      .map((b) => ({ ts: Date.parse(b.ts), cny: b.totalCny as number }))
-      .sort((a, b) => a.ts - b.ts);
-    const base = {
-      peakNow: isPeakBeijing(new Date()),
-      balance: latestBalance,
-      balanceHistory,
-      win,
-      chartWin,
-    };
-    if (range === "custom") {
-      return { ...aggregateCustom(all, custom.date, custom.mode), ...base };
-    }
-    return { ...aggregateRange(all, range), ...base };
-  });
+  openDetailPanel(
+    (range, custom) => {
+      const all = readAllRecords();
+      const win =
+        range === "custom"
+          ? customRangeWindow(custom.date, custom.mode)
+          : rangeWindow(range, new Date());
+      const chartWin =
+        range === "all" ? allChartWindow(all, new Date()) : win;
+      const balanceHistory = readAllBalance()
+        .filter((b) => {
+          if (b.totalCny === null) return false;
+          const t = Date.parse(b.ts);
+          return Number.isFinite(t) && t >= win.start && t < win.end;
+        })
+        .map((b) => ({ ts: Date.parse(b.ts), cny: b.totalCny as number }))
+        .sort((a, b) => a.ts - b.ts);
+      const base = {
+        peakNow: isPeakBeijing(new Date()),
+        balance: latestBalance,
+        balanceHistory,
+        win,
+        chartWin,
+      };
+      if (range === "custom") {
+        return { ...aggregateCustom(all, custom.date, custom.mode), ...base };
+      }
+      return { ...aggregateRange(all, range), ...base };
+    },
+    extUri,
+  );
 }
 
 /** 读取余额文件里最新一条（代理按请求顺带写入）。 */

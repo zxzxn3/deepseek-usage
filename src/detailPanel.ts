@@ -4,6 +4,12 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import isoWeek from "dayjs/plugin/isoWeek";
+
+dayjs.extend(utc);
+dayjs.extend(isoWeek);
 import {
   ModelStats,
   RangeKey,
@@ -11,6 +17,7 @@ import {
   RangeStats,
   CustomMode,
   PanelRange,
+  TimeBucket,
 } from "./stats";
 import { UsageRecord } from "./jsonl";
 import {
@@ -37,7 +44,9 @@ export interface DetailData extends RangeStats {
   chartWin: { start: number; end: number }; // 图表完整时间轴（含未来空槽）
 }
 
-const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
+// 北京时间用 dayjs 的 UTC 模式偏移表示（字段即北京值，不受宿主时区影响）
+const bj = (ts: Date | string | number): dayjs.Dayjs =>
+  dayjs.utc(ts).add(8, "hour");
 const RECENT_DISPLAY = 30;
 
 export interface CustomSelection {
@@ -46,9 +55,7 @@ export interface CustomSelection {
 }
 
 function todayBeijingStr(): string {
-  const n = new Date(Date.now() + BEIJING_OFFSET_MS);
-  const p = (x: number) => String(x).padStart(2, "0");
-  return `${n.getUTCFullYear()}-${p(n.getUTCMonth() + 1)}-${p(n.getUTCDate())}`;
+  return bj(new Date()).format("YYYY-MM-DD");
 }
 
 function pad2(n: number): string {
@@ -57,28 +64,20 @@ function pad2(n: number): string {
 
 /** YYYY-MM-DD（北京）→ ISO 周 "YYYY-Www"（周选择器用）。 */
 function isoWeekOf(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d)); // 北京日历日按 UTC 计算 ISO 周（与时区无关）
-  const dayNum = date.getUTCDay() || 7; // Mon=1..Sun=7
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum); // 移到本周四
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${date.getUTCFullYear()}-W${pad2(week)}`;
+  const d = dayjs.utc(dateStr); // 北京日历日按 UTC 计算 ISO 周（与时区无关）
+  return `${d.isoWeekYear()}-W${pad2(d.isoWeek())}`;
 }
 
 /** ISO 周 "YYYY-Www" → 该周周一（北京）YYYY-MM-DD；解析失败返回 null。 */
 function isoWeekToDateStr(value: string): string | null {
   const m = /^(\d{4})-W(\d{2})$/.exec(value.trim());
   if (!m) return null;
-  const year = Number(m[1]);
-  const week = Number(m[2]);
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const jan4Dow = jan4.getUTCDay() || 7;
-  const week1Monday = jan4.getTime() - (jan4Dow - 1) * 86400000;
-  const monday = new Date(week1Monday + (week - 1) * 7 * 86400000);
-  return `${monday.getUTCFullYear()}-${pad2(monday.getUTCMonth() + 1)}-${pad2(
-    monday.getUTCDate(),
-  )}`;
+  // ISO 第 1 周必然包含 1 月 4 日：取 1/4 所在周周一，再推到目标周
+  const monday = dayjs
+    .utc(`${m[1]}-01-04`)
+    .isoWeekday(1)
+    .add(Number(m[2]) - 1, "week");
+  return monday.format("YYYY-MM-DD");
 }
 
 /** YYYY-MM-DD（北京）→ "YYYY-MM"（月选择器值）。 */
@@ -93,9 +92,9 @@ function monthToDateStr(value: string): string {
 }
 
 function beijingTime(ts: string): string {
-  const d = new Date(Date.parse(ts) + BEIJING_OFFSET_MS);
+  const bt = bj(ts);
   const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+  return `${p(bt.hour())}:${p(bt.minute())}:${p(bt.second())}`;
 }
 
 function money(n: number, digits = 4): string {
@@ -133,168 +132,131 @@ function rowCosts(r: UsageRecord): { cost: number; chCost: number } {
 
 type ChartKind = "cost" | "tokens";
 
-/** 按时间图表（SVG）：用量柱 + 可选余额曲线叠加；柱常驻半透明。 */
-function usageChartHtml(
-  buckets: {
-    label: string;
-    start: number;
-    cost: number;
-    tokens: number;
-    costCacheHit: number;
-    costCacheMiss: number;
-    costOutput: number;
-    tokCacheHit: number;
-    tokCacheMiss: number;
-    tokOutput: number;
-  }[],
+/** 交给 webview 里 Chart.js 渲染的数据（时间槽 + 三段堆叠 + 可选余额线）。 */
+interface ChartPayload {
+  labels: string[];
+  showTick: boolean[];
+  hit: number[];
+  miss: number[];
+  out: number[];
+  format: ChartKind;
+  balance: (number | null)[] | { x: number; y: number }[] | null;
+  useTimeAxis: boolean; // 余额线是否画在独立线性时间轴（月/全部视图按小时）
+  chartStart: number;
+  chartEnd: number;
+  names: { hit: string; miss: string; out: string; balance: string };
+}
+
+/** 由聚合桶构建 Chart.js 数据；无数据返回 null（面板显示占位文本）。 */
+function buildChartPayload(
+  buckets: TimeBucket[],
   kind: ChartKind,
   barHourly: boolean,
   labelHourly: boolean,
   chartWin: { start: number; end: number },
   balance: { ts: number; cny: number }[],
   showBalance: boolean,
-): string {
-  if (buckets.length === 0) {
-    return `<div class="muted">${t("noRequestsToday")}</div>`;
-  }
-  const W = 720;
-  const H = 170;
-  const PAD_L = 46;
-  const PAD_R = showBalance && balance.length > 0 ? 52 : 8;
-  const PAD_T = 8;
-  const BL = 16; // 底部标签区
-  const plotL = PAD_L;
-  const plotR = W - PAD_R;
-  const plotT = PAD_T;
-  const plotB = H - BL;
-  const span = Math.max(1, chartWin.end - chartWin.start);
-  const x = (ts: number) =>
-    plotL + ((ts - chartWin.start) / span) * (plotR - plotL);
+): ChartPayload | null {
+  if (buckets.length === 0) return null;
   const bucketMs = barHourly ? 3600 * 1000 : 24 * 3600 * 1000;
-  const slotCount = Math.max(1, Math.ceil(span / bucketMs));
-  const slotW = (plotR - plotL) / slotCount;
-  const vals = buckets.map((b) => (kind === "cost" ? b.cost : b.tokens));
-  const maxV = Math.max(1, ...vals);
-  const yV = (v: number) => plotB - (v / maxV) * (plotB - plotT);
-  const fmt = (n: number) => (kind === "cost" ? money(n) : fmtNum(n));
+  const slotCount = Math.max(1, Math.ceil((chartWin.end - chartWin.start) / bucketMs));
   const bucketByStart = new Map(buckets.map((b) => [b.start, b]));
+  const compactDay = !labelHourly; // 非小时标签的视图（周/月/全部）：标签只显示日号
   const slotLabel = (s: number) => {
-    const d = new Date(s + BEIJING_OFFSET_MS);
+    const bt = bj(s);
+    if (compactDay) return String(bt.date());
     return labelHourly
-      ? pad2(d.getUTCHours())
-      : `${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+      ? pad2(bt.hour())
+      : `${pad2(bt.month() + 1)}-${pad2(bt.date())}`;
   };
-  // 天标签只标在每天 0 点那根柱下方（周视图：小时柱 + 天标签）
   const isDayStart = (s: number) => {
-    const d = new Date(s + BEIJING_OFFSET_MS);
-    return d.getUTCHours() === 0 && d.getUTCMinutes() === 0;
+    const bt = bj(s);
+    return bt.hour() === 0 && bt.minute() === 0;
   };
   const labelStep = Math.max(1, Math.ceil(slotCount / 24));
-  const titleLabel = (s: number) => {
-    const d = new Date(s + BEIJING_OFFSET_MS);
-    const day = `${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-    return barHourly ? `${day} ${pad2(d.getUTCHours())}:00` : day;
-  };
-
-  // 左 y 轴（用量）：网格线 + 刻度标签
-  let yAxis = "";
-  const gridTicks = [0, 0.25, 0.5, 0.75, 1];
-  for (const t of gridTicks) {
-    const yPos = plotB - t * (plotB - plotT);
-    yAxis += `<line x1="${plotL}" x2="${plotR}" y1="${yPos}" y2="${yPos}" stroke="var(--vscode-panel-border)" stroke-opacity="0.35"/>`;
-    yAxis += `<text x="${plotL - 6}" y="${yPos + 3}" font-size="9" fill="var(--vscode-foreground)" opacity="0.65" text-anchor="end">${fmt(
-      t * maxV,
-    )}</text>`;
-  }
-  yAxis += `<text x="${plotL - 6}" y="${plotT - 4}" font-size="9" fill="var(--vscode-foreground)" opacity="0.65" text-anchor="end">${
-    kind === "cost" ? t("cost") : t("totalToken")
-  }</text>`;
-
-  // 完整时间轴：每个槽位都分配固定宽度并标注（过去/未来无数据也显示标签，柱宽稳定）
-  let slots = "";
+  const labels: string[] = [];
+  const showTick: boolean[] = [];
+  const hit: number[] = [];
+  const miss: number[] = [];
+  const out: number[] = [];
+  const slotStarts: number[] = [];
   for (let i = 0; i < slotCount; i++) {
     const s = chartWin.start + i * bucketMs;
     const b = bucketByStart.get(s);
-    const v = b ? (kind === "cost" ? b.cost : b.tokens) : 0;
-    const bx = x(s);
-    const w = Math.max(1, slotW - 2);
-    const showLabel = labelHourly
-      ? i % labelStep === 0
-      : barHourly
-        ? isDayStart(s)
-        : i % labelStep === 0;
-    const label = showLabel
-      ? `<text x="${(bx + slotW / 2).toFixed(1)}" y="${H - 4}" font-size="10" fill="var(--vscode-foreground)" opacity="0.6" text-anchor="middle">${slotLabel(
-          s,
-        )}</text>`
-      : "";
-    let bar = "";
-    if (v > 0 && b) {
-      // 堆叠三段：下=缓存命中输入，中=缓存未命中输入，上=输出
-      const segs =
-        kind === "cost"
-          ? [
-              { v: b.costCacheHit, c: "var(--vscode-charts-blue)" },
-              { v: b.costCacheMiss, c: "var(--vscode-charts-green)" },
-              { v: b.costOutput, c: "var(--vscode-charts-purple)" },
-            ]
-          : [
-              { v: b.tokCacheHit, c: "var(--vscode-charts-blue)" },
-              { v: b.tokCacheMiss, c: "var(--vscode-charts-green)" },
-              { v: b.tokOutput, c: "var(--vscode-charts-purple)" },
-            ];
-      const title = `${titleLabel(s)}: ${fmt(v)}`;
-      let yCursor = plotB;
-      for (const seg of segs) {
-        const segH = (seg.v / maxV) * (plotB - plotT);
-        if (segH > 0) {
-          const y0 = yCursor - segH;
-          bar += `<rect x="${bx.toFixed(1)}" y="${y0.toFixed(1)}" width="${w.toFixed(
-            1,
-          )}" height="${segH.toFixed(1)}" fill="${seg.c}" fill-opacity="0.75"><title>${title}</title></rect>`;
-          yCursor -= segH;
-        }
-      }
+    const show =
+      labelHourly ? i % labelStep === 0
+      : barHourly ? isDayStart(s)
+      : i % labelStep === 0;
+    labels.push(slotLabel(s));
+    showTick.push(show);
+    if (b) {
+      hit.push(kind === "cost" ? b.costCacheHit : b.tokCacheHit);
+      miss.push(kind === "cost" ? b.costCacheMiss : b.tokCacheMiss);
+      out.push(kind === "cost" ? b.costOutput : b.tokOutput);
+    } else {
+      hit.push(0);
+      miss.push(0);
+      out.push(0);
     }
-    slots += bar + label;
+    slotStarts.push(s);
   }
-
-  // 余额曲线叠加（右 y 轴）
-  let overlay = "";
-  let yAxisRight = "";
+  let balanceVals: (number | null)[] | { x: number; y: number }[] | null = null;
+  let useTimeAxis = false;
   if (showBalance && balance.length > 0) {
-    const cnys = balance.map((p) => p.cny);
-    const maxB = Math.max(...cnys, 0);
-    const cSpan = maxB || 1; // 从 0 到最高点
-    // 负余额按 0 处理（落在图底，不显示 0 以下部分）
-    const yB = (c: number) =>
-      plotB - (Math.max(0, c) / cSpan) * (plotB - plotT);
-    const clampX = (ts: number) => Math.max(plotL, Math.min(plotR, x(ts)));
-    const pts = balance
-      .map((p) => `${clampX(p.ts).toFixed(1)},${yB(p.cny).toFixed(1)}`)
-      .join(" ");
-    const dot =
-      balance.length === 1
-        ? `<circle cx="${clampX(balance[0].ts).toFixed(1)}" cy="${yB(
-            balance[0].cny,
-          ).toFixed(1)}" r="2.5" fill="var(--vscode-charts-orange)"/>`
-        : "";
-    overlay = `<polyline points="${pts}" fill="none" stroke="var(--vscode-charts-orange)" stroke-width="1.5"/>${dot}`;
-    const bTicks = maxB > 0 ? [0, maxB] : [0];
-    for (const c of bTicks) {
-      const yPos = yB(c);
-      yAxisRight += `<text x="${plotR + 6}" y="${yPos + 3}" font-size="9" fill="var(--vscode-charts-orange)" opacity="0.9">${money(
-        c,
-        2,
-      )}</text>`;
+    if (barHourly) {
+      // 天/周视图：柱是小时，余额按小时槽平均，画在 category 轴
+      const arr: (number | null)[] = [];
+      for (let i = 0; i < slotCount; i++) {
+        const s = slotStarts[i];
+        let sum = 0;
+        let n = 0;
+        for (const p of balance) {
+          if (p.ts >= s && p.ts < s + bucketMs) {
+            sum += p.cny;
+            n++;
+          }
+        }
+        arr.push(n > 0 ? sum / n : null);
+      }
+      balanceVals = arr;
+    } else {
+      // 月/全部视图：柱是天，余额按小时点画在独立时间轴 xBal（已与天柱对齐）
+      useTimeAxis = true;
+      const HOUR = 3600 * 1000;
+      const arr: { x: number; y: number }[] = [];
+      const first = Math.floor(chartWin.start / HOUR) * HOUR;
+      for (let t = first; t < chartWin.end; t += HOUR) {
+        let sum = 0;
+        let n = 0;
+        for (const p of balance) {
+          if (p.ts >= t && p.ts < t + HOUR) {
+            sum += p.cny;
+            n++;
+          }
+        }
+        if (n > 0) arr.push({ x: t, y: sum / n });
+      }
+      balanceVals = arr;
     }
-    yAxisRight += `<text x="${plotR + 6}" y="${plotT - 4}" font-size="9" fill="var(--vscode-charts-orange)">${t(
-      "balanceCurve",
-    )}</text>`;
   }
-
-  // 水平随面板宽度缩放（高度固定）；preserveAspectRatio=none 使其横向拉伸
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" style="display:block">${yAxis}${slots}${overlay}${yAxisRight}</svg>`;
+  return {
+    labels,
+    showTick,
+    hit,
+    miss,
+    out,
+    format: kind,
+    balance: balanceVals,
+    useTimeAxis,
+    chartStart: chartWin.start,
+    chartEnd: chartWin.end,
+    names: {
+      hit: t("cacheHit"),
+      miss: t("cacheMiss"),
+      out: t("output"),
+      balance: t("balanceCurve"),
+    },
+  };
 }
 
 function render(
@@ -303,9 +265,10 @@ function render(
   kind: ChartKind,
   custom: CustomSelection,
   showBalance: boolean,
+  chartUri: string,
 ): string {
   const s = data;
-  const today = new Date(Date.now() + BEIJING_OFFSET_MS).toISOString().slice(0, 10);
+  const today = bj(new Date()).format("YYYY-MM-DD");
   const seg = currentBeijingSegment(new Date());
   const peakBadge = seg.peak
     ? `<span class="badge peak">${t("peakBadge")}</span>`
@@ -373,6 +336,15 @@ function render(
   const labelHourly =
     barHourly &&
     (range === "today" || (range === "custom" && custom.mode === "day"));
+  const payload = buildChartPayload(
+    s.buckets,
+    kind,
+    barHourly,
+    labelHourly,
+    s.chartWin,
+    s.balanceHistory,
+    showBalance,
+  );
 
   const card = (k: string, v: string) =>
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
@@ -459,6 +431,7 @@ function render(
   .legend { display: flex; gap: 14px; font-size: 11px; margin: 4px 0 6px; color: var(--vscode-foreground); opacity: .8; }
   .legend span { display: inline-flex; align-items: center; gap: 4px; }
   .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .chart-box { position: relative; height: 160px; }
   .banner { padding: 6px 10px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); margin-bottom: 10px; font-size: 12px; }
   .banner.warn { background: rgba(255,90,90,.12); border-color: #ff6b6b; color: #ff6b6b; }
   table { border-collapse: collapse; width: 100%; font-size: 12px; }
@@ -480,13 +453,17 @@ function render(
 
   <div class="toolbar">
     ${RANGE_KEYS.map(rangeBtn).join("")}
-    <input
+    ${
+      range !== "all"
+        ? `<input
       type="${inputType}"
       id="date"
       class="datepick"
       value="${inputValue}"
       title="${t("customRangeNote")}"
-    />
+    />`
+        : ""
+    }
     <label class="switch" title="${t("balanceCurve")}">
       <input type="checkbox" id="showBalance" ${showBalance ? "checked" : ""} />
       <span class="track"></span>
@@ -503,15 +480,11 @@ function render(
     <span><i style="background:var(--vscode-charts-green)"></i>${t("cacheMiss")}</span>
     <span><i style="background:var(--vscode-charts-purple)"></i>${t("output")}</span>
   </div>
-  ${usageChartHtml(
-    s.buckets,
-    kind,
-    barHourly,
-    labelHourly,
-    s.chartWin,
-    s.balanceHistory,
-    showBalance,
-  )}
+  ${
+    payload
+      ? `<div class="chart-box"><canvas id="usageChart"></canvas></div>`
+      : `<div class="muted">${t("noRequestsToday")}</div>`
+  }
 
   <div class="cards">${summary}</div>
 
@@ -545,6 +518,58 @@ function render(
       vscode.postMessage({ type: "exportCsv", range: b.range, date: b.date, mode: b.mode });
     });
   </script>
+  ${
+    payload
+      ? `<script>window.__CHART = ${JSON.stringify(payload)};</script>
+<script src="${chartUri}"></script>
+<script>
+  (function () {
+    var d = window.__CHART;
+    if (!d || typeof Chart === "undefined") return;
+    var css = getComputedStyle(document.body);
+    var col = function (v, f) { var s = css.getPropertyValue(v).trim(); return s || f; };
+    var blue = col("--vscode-charts-blue", "#3794ff");
+    var green = col("--vscode-charts-green", "#30a148");
+    var purple = col("--vscode-charts-purple", "#b180d7");
+    var orange = col("--vscode-charts-orange", "#ea5f00");
+    var gridColor = col("--vscode-panel-border", "rgba(128,128,128,0.3)");
+    var fmt = d.format === "cost"
+      ? function (n) { return "￥" + (n || 0).toFixed(4); }
+      : function (n) { n = n || 0; if (n < 1000) return String(n); if (n < 1000000) return (n / 1000).toFixed(1) + "k"; return (n / 1000000).toFixed(2) + "M"; };
+    var datasets = [
+      { label: d.names.hit, data: d.hit, backgroundColor: blue, stack: "u" },
+      { label: d.names.miss, data: d.miss, backgroundColor: green, stack: "u" },
+      { label: d.names.out, data: d.out, backgroundColor: purple, stack: "u" },
+    ];
+    var scales = {
+      x: { stacked: true, grid: { color: function (ctx) { return d.showTick[ctx.index] ? gridColor : "transparent"; } }, ticks: { autoSkip: false, maxRotation: 0, font: { size: 9 }, callback: function (v, i) { return d.showTick[i] ? d.labels[i] : ""; } } },
+      y: { stacked: true, beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 9 }, callback: function (v) { return fmt(v); } } },
+    };
+    if (d.balance && d.balance.length) {
+      datasets.push({ label: d.names.balance, type: "line", data: d.balance, xAxisID: d.useTimeAxis ? "xBal" : "x", yAxisID: "yBal", borderColor: orange, backgroundColor: "transparent", pointRadius: 0, borderWidth: 1.5, spanGaps: true, tension: 0 });
+      if (d.useTimeAxis) {
+        scales.xBal = { type: "linear", min: d.chartStart, max: d.chartEnd, offset: false, display: false, ticks: { display: false }, grid: { drawOnChartArea: false } };
+      }
+      scales.yBal = { position: "right", beginAtZero: true, stacked: false, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 }, color: orange, callback: function (v) { return "￥" + (v || 0).toFixed(2); } } };
+    }
+    new Chart(document.getElementById("usageChart"), {
+      type: "bar",
+      data: { labels: d.labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + (ctx.dataset.yAxisID === "yBal" ? "￥" + (ctx.parsed.y || 0).toFixed(2) : fmt(ctx.parsed.y)); } } },
+        },
+        scales: scales,
+      },
+    });
+  })();
+</script>`
+      : ""
+  }
 </body>
 </html>`;
 }
@@ -556,7 +581,7 @@ async function exportCsv(
 ) {
   const data = getData(range as PanelRange, custom);
   const csv = buildCsv(data.rows);
-  const stamp = new Date(Date.now() + BEIJING_OFFSET_MS).toISOString().slice(0, 10);
+  const stamp = bj(new Date()).format("YYYY-MM-DD");
   const uri = await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.file(
       path.join(os.homedir(), `deepseek-usage-${range}-${stamp}.csv`),
@@ -616,12 +641,20 @@ function buildCsv(rows: UsageRecord[]): string {
 
 export function openDetailPanel(
   getData: (range: PanelRange, custom: CustomSelection) => DetailData,
+  extensionUri: vscode.Uri,
 ): void {
   const panel = vscode.window.createWebviewPanel(
     "deepseekStatusBar.detail",
     t("panelTitle"),
     vscode.ViewColumn.One,
-    { enableScripts: true, retainContextWhenHidden: true },
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [vscode.Uri.joinPath(extensionUri, "out")],
+    },
+  );
+  const chartUri = panel.webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, "out", "chart.umd.js"),
   );
   let range: PanelRange = "today";
   let custom: CustomSelection = { date: todayBeijingStr(), mode: "day" };
@@ -634,6 +667,7 @@ export function openDetailPanel(
       kind,
       custom,
       showBalance,
+      chartUri.toString(),
     );
   };
   refresh();

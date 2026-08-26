@@ -1,6 +1,10 @@
 // 今日（北京时间）统计聚合。JSONL 存原始事实，费用在此按峰值现算。
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
 import { UsageRecord } from "./jsonl";
 import { modelPrice, costFromUsage, isPeakBeijing } from "./pricing";
+
+dayjs.extend(utc);
 
 export interface TodayStats {
   p: number;
@@ -11,13 +15,13 @@ export interface TodayStats {
   chCost: number;
 }
 
-const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
+// 北京时间用 dayjs 的 UTC 模式偏移表示（字段即北京值，不受宿主时区影响）
+const bj = (ts: Date | string | number): dayjs.Dayjs =>
+  dayjs.utc(ts).add(8, "hour");
 
 /** 北京时间"今天"0 点对应的 UTC 毫秒。 */
 export function beijingDayStartUtcMs(now: Date): number {
-  const bt = new Date(now.getTime() + BEIJING_OFFSET_MS);
-  const dayStart = Date.UTC(bt.getUTCFullYear(), bt.getUTCMonth(), bt.getUTCDate());
-  return dayStart - BEIJING_OFFSET_MS;
+  return bj(now).startOf("day").subtract(8, "hour").valueOf();
 }
 
 export function newTodayStats(): TodayStats {
@@ -147,18 +151,15 @@ export function rangeWindow(
     case "today":
       return { start: dayStart, end: dayStart + DAY };
     case "week": {
-      const wd = new Date(dayStart + BEIJING_OFFSET_MS).getUTCDay(); // 北京星期几，周日=0
+      const wd = bj(dayStart).day(); // 北京星期几，周日=0
       const weekStart = dayStart - ((wd + 6) % 7) * DAY;
       return { start: weekStart, end: weekStart + 7 * DAY };
     }
     case "month": {
-      const bt = new Date(dayStart + BEIJING_OFFSET_MS);
+      const bt = bj(dayStart);
       return {
-        start:
-          Date.UTC(bt.getUTCFullYear(), bt.getUTCMonth(), 1) - BEIJING_OFFSET_MS,
-        end:
-          Date.UTC(bt.getUTCFullYear(), bt.getUTCMonth() + 1, 1) -
-          BEIJING_OFFSET_MS,
+        start: bt.startOf("month").subtract(8, "hour").valueOf(),
+        end: bt.add(1, "month").startOf("month").subtract(8, "hour").valueOf(),
       };
     }
     case "all":
@@ -185,8 +186,7 @@ export function allChartWindow(
 
 /** 北京时间某日历日 0 点对应的 UTC 毫秒。dateStr = YYYY-MM-DD。 */
 export function beijingDateStartUtcMs(dateStr: string): number {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return Date.UTC(y, m - 1, d) - BEIJING_OFFSET_MS;
+  return bj(dateStr).startOf("day").subtract(8, "hour").valueOf();
 }
 
 /** 自定义区间窗口：day=该北京日；week=该日所在周（周一~周日）；month=该日所在月。 */
@@ -198,14 +198,14 @@ export function customRangeWindow(
   const dayStart = beijingDateStartUtcMs(dateStr);
   if (mode === "day") return { start: dayStart, end: dayStart + DAY };
   if (mode === "week") {
-    const wd = new Date(dayStart + BEIJING_OFFSET_MS).getUTCDay(); // 北京星期几，周日=0
+    const wd = bj(dayStart).day(); // 北京星期几，周日=0
     const weekStart = dayStart - ((wd + 6) % 7) * DAY;
     return { start: weekStart, end: weekStart + 7 * DAY };
   }
-  const [y, m] = dateStr.split("-").map(Number);
+  const bt = bj(dayStart);
   return {
-    start: Date.UTC(y, m - 1, 1) - BEIJING_OFFSET_MS,
-    end: Date.UTC(y, m, 1) - BEIJING_OFFSET_MS,
+    start: bt.startOf("month").subtract(8, "hour").valueOf(),
+    end: bt.add(1, "month").startOf("month").subtract(8, "hour").valueOf(),
   };
 }
 
@@ -256,10 +256,10 @@ function aggregateWindow(
   let count402 = 0;
 
   const bucketLabel = (ms: number) => {
-    const d = new Date(ms + BEIJING_OFFSET_MS);
-    if (hourly) return String(d.getUTCHours()).padStart(2, "0");
-    return `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
-      d.getUTCDate(),
+    const bt = bj(ms);
+    if (hourly) return String(bt.hour()).padStart(2, "0");
+    return `${String(bt.month() + 1).padStart(2, "0")}-${String(
+      bt.date(),
     ).padStart(2, "0")}`;
   };
 
@@ -293,9 +293,10 @@ function aggregateWindow(
 
     // 桶按北京时间对齐（当天 00:00 / 整点），与图表完整时间轴对齐；
     // 否则北京 00:00-08:00 的记录会被分到前一天的 UTC 桶。
-    const bStart =
-      Math.floor((tsMs + BEIJING_OFFSET_MS) / bucketMs) * bucketMs -
-      BEIJING_OFFSET_MS;
+    const bStart = bj(tsMs)
+      .startOf(hourly ? "hour" : "day")
+      .subtract(8, "hour")
+      .valueOf();
     let b = bucketMap.get(bStart);
     if (!b) {
       b = {

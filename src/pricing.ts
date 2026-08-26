@@ -2,6 +2,10 @@
 // - 高峰价 = 空闲价 × 2；高峰 = 北京时间周一~五 9-12、14-18。
 // - 单位：元 / 百万 tokens。
 
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
+
 export interface ModelPrice {
   cache_hit: number; // 输入缓存命中
   cache_miss: number; // 输入未命中
@@ -45,15 +49,15 @@ export function modelPrice(model: string): ModelPrice {
   return activeTable[model] ?? activeTable[DEFAULT_MODEL];
 }
 
-// 中国无夏令时，北京时间 = UTC+8 固定偏移
-const BEIJING_OFFSET_MS = 8 * 3600 * 1000;
+// 北京时间用 dayjs 的 UTC 模式偏移表示（字段即北京值，不受宿主时区影响）
+const bj = (ts: Date | string | number): dayjs.Dayjs =>
+  dayjs.utc(ts).add(8, "hour");
 
 /** tsUtc（Date 或 ISO 字符串）是否落在北京时间高峰时段（周一~五 9-12、14-18）。 */
 export function isPeakBeijing(tsUtc: Date | string): boolean {
-  const d = typeof tsUtc === "string" ? new Date(tsUtc) : tsUtc;
-  const bt = new Date(d.getTime() + BEIJING_OFFSET_MS);
-  const wd = bt.getUTCDay(); // Sun=0..Sat=6
-  const h = bt.getUTCHours();
+  const bt = bj(tsUtc);
+  const wd = bt.day(); // Sun=0..Sat=6
+  const h = bt.hour();
   if (wd === 0 || wd === 6) return false; // 周六/周日
   return (h >= 9 && h < 12) || (h >= 14 && h < 18);
 }
@@ -65,10 +69,9 @@ export interface PeakSegment {
 
 /** 北京时间当前所处计费段：高峰=周一~五 9-12、14-18，其余闲时。 */
 export function currentBeijingSegment(tsUtc: Date | string): PeakSegment {
-  const d = typeof tsUtc === "string" ? new Date(tsUtc) : tsUtc;
-  const bt = new Date(d.getTime() + BEIJING_OFFSET_MS);
-  const wd = bt.getUTCDay();
-  const hm = bt.getUTCHours() + bt.getUTCMinutes() / 60;
+  const bt = bj(tsUtc);
+  const wd = bt.day();
+  const hm = bt.hour() + bt.minute() / 60;
   if (wd === 0 || wd === 6) return { peak: false, range: "00:00-24:00" };
   if (hm >= 9 && hm < 12) return { peak: true, range: "09:00-12:00" };
   if (hm >= 12 && hm < 14) return { peak: false, range: "12:00-14:00" };
